@@ -1,0 +1,81 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─── Helper Functions ──────────────────────────────────────────────
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // ─── Users Collection ──────────────────────────────────────────────
+    // Users can read/write only their own document.
+    // publicKey can be set by the client on creation or update.
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid) &&
+        request.resource.data.keys().hasAll(['email', 'role', 'createdAt']) &&
+        request.resource.data.role == 'user';
+      allow update: if isOwner(uid) &&
+        // Prevent users from escalating their own role
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']));
+      allow delete: if false; // Users cannot delete their own document
+    }
+
+    // ─── Events Collection ─────────────────────────────────────────────
+    // Public read for all authenticated users; write only by admins.
+    // Uses polygon-based geofencing (polygonCoordinates array).
+    // TEMPORARY: More permissive rules for development
+    match /events/{eventId} {
+      allow read: if isAuthenticated();
+      // RELAXED: Allow any authenticated user to create events (for development)
+      allow create: if isAuthenticated() &&
+        request.resource.data.organizerId == request.auth.uid;
+      allow update: if isAuthenticated() &&
+        resource.data.organizerId == request.auth.uid;
+      allow delete: if isAuthenticated() &&
+        resource.data.organizerId == request.auth.uid;
+    }
+
+    // ─── Tickets Collection ────────────────────────────────────────────
+    // Create: authenticated user can create ticket with ownerId == uid, status == 'pending'.
+    // Read: only ticket owner.
+    // Update: DENY all client updates — only Cloud Functions (Admin SDK) can update
+    //         status, biometricVerified, insideFence, activatedAt, entryCode.
+    // Delete: denied.
+    match /tickets/{ticketId} {
+      allow read: if (isAuthenticated() && resource.data.ownerId == request.auth.uid) || isAdmin();
+      allow create: if isAuthenticated() &&
+        request.resource.data.ownerId == request.auth.uid &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.biometricVerified == false &&
+        request.resource.data.insideFence == false &&
+        request.resource.data.keys().hasAll(['eventId', 'ownerId', 'status', 'biometricVerified', 'insideFence', 'createdAt']);
+      // Client cannot update tickets — server-only via Admin SDK
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // ─── Activation Nonces ─────────────────────────────────────────────
+    // Server-only. No client read/write.
+    match /activation_nonces/{nonceId} {
+      allow read, write: if false;
+    }
+
+    // ─── Attendance Logs ───────────────────────────────────────────────
+    // Server-only write. Owners can read their own logs (via ticketId lookup).
+    match /attendance_logs/{logId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+  }
+}

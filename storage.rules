@@ -1,0 +1,24 @@
+rules_version = '2';
+
+// Craft rules based on data in your Firestore database
+// allow write: if firestore.get(
+//    /databases/(default)/documents/users/$(request.auth.uid)).data.isAdmin;
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    // Admins can upload event thumbnails
+    match /events/{eventId}/{fileName} {
+      allow read: if true; // Public can see event thumbnails
+      allow write: if isAuthenticated(); // Simplified rule: allow any authenticated user to upload for now (ideally restricted to admins, but since eventId is generated locally, we allow auth'd users)
+    }
+  }
+}

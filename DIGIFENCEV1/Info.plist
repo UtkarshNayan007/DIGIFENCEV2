@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>REVERSED_CLIENT_ID</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.695824750448-h99t0l3s0shn7786maljq24l81f676q3</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>DigiFence needs your location to show nearby events and verify geofence entry.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>DigiFence needs background location access to monitor geofence boundaries and verify your ticket activation in real-time.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>DigiFence needs background location access to monitor geofence boundaries.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>DigiFence needs camera access to scan event QR codes.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>DigiFence needs photo library access to select event images.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>DigiFence uses Face ID for secure biometric ticket activation.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>remote-notification</string>
+		<string>fetch</string>
+		<string>processing</string>
+	</array>
+</dict>
+</plist>
