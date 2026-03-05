@@ -14,7 +14,13 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        // Configure Firebase FIRST
+        // NOTE: App Check is intentionally NOT configured here.
+        // To use App Check in production, you must:
+        // 1. Set up AppCheckDebugProviderFactory (for simulators) or DeviceCheck/AppAttest (for devices)
+        // 2. Register debug tokens in Firebase Console → App Check → Apps
+        // 3. Enforce App Check for Firestore in Firebase Console → App Check → APIs
+        
+        // Configure Firebase
         FirebaseApp.configure()
         
         // Configure push notifications
