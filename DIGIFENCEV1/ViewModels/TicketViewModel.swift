@@ -41,36 +41,25 @@ final class TicketViewModel: ObservableObject {
     
     // MARK: - Create / Buy Ticket
     
+    /// Purchases a ticket using a Firestore transaction to atomically
+    /// verify capacity, create the ticket, and increment ticketsSold.
     func createTicket(for event: Event) async -> String? {
-        guard let uid = firebase.currentUser?.uid,
-              let eventId = event.id else {
-            errorMessage = "You must be signed in."
-            showError = true
-            return nil
-        }
-        
         isLoading = true
         
         do {
-            let ticketData: [String: Any] = [
-                "eventId": eventId,
-                "ownerId": uid,
-                "status": "pending",
-                "biometricVerified": false,
-                "insideFence": false,
-                "activatedAt": NSNull(),
-                "entryCode": NSNull(),
-                "createdAt": FieldValue.serverTimestamp()
-            ]
-            
-            let docRef = try await firebase.ticketsCollection.addDocument(data: ticketData)
+            let ticketId = try await TicketPurchaseService.shared.purchaseTicket(for: event)
             
             // Start monitoring this event's geofence
-            locationManager.startPolygonMonitoring(for: event, ticketId: docRef.documentID)
+            locationManager.startPolygonMonitoring(for: event, ticketId: ticketId)
             
             isLoading = false
-            return docRef.documentID
+            return ticketId
             
+        } catch let error as TicketPurchaseError {
+            errorMessage = error.localizedDescription
+            showError = true
+            isLoading = false
+            return nil
         } catch {
             errorMessage = error.localizedDescription
             showError = true

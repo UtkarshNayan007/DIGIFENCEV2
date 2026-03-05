@@ -24,6 +24,10 @@ final class PolygonGeofenceManager: ObservableObject {
     @Published var distanceToEdge: [String: Double] = [:]
     /// Whether the user is in the activation zone for a given event.
     @Published var isInActivationZone: [String: Bool] = [:]
+    /// Whether a grace period countdown is currently active.
+    @Published var isGracePeriodActive: Bool = false
+    /// Remaining seconds on the grace period countdown.
+    @Published var gracePeriodRemainingSeconds: Int = 0
     
     // MARK: - Callbacks
     
@@ -56,6 +60,8 @@ final class PolygonGeofenceManager: ObservableObject {
     private var exitConfirmations: [String: Int] = [:]
     /// Active grace timers keyed by ticketId.
     private var graceTimers: [String: Timer] = [:]
+    /// 1-second repeating countdown timer for UI display.
+    private var countdownTimer: Timer?
     /// Previous inside state per eventId (for edge detection).
     private var previousInsideState: [String: Bool] = [:]
     
@@ -110,6 +116,7 @@ final class PolygonGeofenceManager: ObservableObject {
     func stopAllMonitoring() {
         graceTimers.values.forEach { $0.invalidate() }
         graceTimers.removeAll()
+        stopCountdown()
         exitConfirmations.removeAll()
         previousInsideState.removeAll()
         polygons.removeAll()
@@ -135,17 +142,53 @@ final class PolygonGeofenceManager: ObservableObject {
     func startGraceTimer(eventId: String, ticketId: String) {
         cancelGraceTimer(for: ticketId)
         
+        // Start the main expiry timer
         let timer = Timer.scheduledTimer(withTimeInterval: gracePeriodSeconds, repeats: false) { [weak self] _ in
+            self?.stopCountdown()
             self?.onGracePeriodExpired?(eventId, ticketId)
         }
         graceTimers[ticketId] = timer
         RunLoop.main.add(timer, forMode: .common)
+        
+        // Start 1-second countdown for UI
+        gracePeriodRemainingSeconds = Int(gracePeriodSeconds)
+        isGracePeriodActive = true
+        startCountdown()
     }
     
     /// Cancel the grace timer for a ticket.
     func cancelGraceTimer(for ticketId: String) {
         graceTimers[ticketId]?.invalidate()
         graceTimers.removeValue(forKey: ticketId)
+        
+        // Reset countdown if no more grace timers are active
+        if graceTimers.isEmpty {
+            stopCountdown()
+        }
+    }
+    
+    // MARK: - Countdown Timer
+    
+    private func startCountdown() {
+        countdownTimer?.invalidate()
+        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            if self.gracePeriodRemainingSeconds > 0 {
+                self.gracePeriodRemainingSeconds -= 1
+            } else {
+                self.stopCountdown()
+            }
+        }
+        if let countdownTimer {
+            RunLoop.main.add(countdownTimer, forMode: .common)
+        }
+    }
+    
+    private func stopCountdown() {
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        isGracePeriodActive = false
+        gracePeriodRemainingSeconds = 0
     }
     
     // MARK: - Location Subscription
@@ -226,5 +269,6 @@ final class PolygonGeofenceManager: ObservableObject {
     
     deinit {
         graceTimers.values.forEach { $0.invalidate() }
+        countdownTimer?.invalidate()
     }
 }

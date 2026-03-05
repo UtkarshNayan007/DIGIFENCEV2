@@ -42,6 +42,8 @@ struct ContentView: View {
                 OnboardingView(hasCompletedOnboarding: $hasCompletedOnboarding)
             } else if !firebase.isLoggedIn {
                 LoginView()
+            } else if firebase.appUser?.role == .admin {
+                AdminDashboardView()
             } else {
                 MainTabView()
             }

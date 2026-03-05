@@ -10,6 +10,7 @@ import SwiftUI
 struct MyPassView: View {
     @StateObject private var viewModel = MyPassViewModel()
     @StateObject private var ticketVM = TicketViewModel()
+    @ObservedObject private var polygonManager = PolygonGeofenceManager.shared
     
     var body: some View {
         ZStack {
@@ -25,6 +26,10 @@ struct MyPassView: View {
             } else {
                 ScrollView {
                     VStack(spacing: 16) {
+                        // Grace period countdown banner
+                        if polygonManager.isGracePeriodActive {
+                            GracePeriodBanner(remainingSeconds: polygonManager.gracePeriodRemainingSeconds)
+                        }
                         // Active Passes
                         if !viewModel.activeTickets.isEmpty {
                             SectionHeader(title: "Active Passes", icon: "checkmark.shield.fill", color: .green)
@@ -269,5 +274,40 @@ struct PassCard: View {
         } message: {
             Text(ticketVM.errorMessage ?? "")
         }
+    }
+}
+
+
+// MARK: - Grace Period Countdown Banner
+
+struct GracePeriodBanner: View {
+    let remainingSeconds: Int
+    
+    private var formattedTime: String {
+        let minutes = remainingSeconds / 60
+        let seconds = remainingSeconds % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+    
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.yellow)
+            
+            Text("Return to event zone: \(formattedTime) remaining")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.white)
+            
+            Spacer()
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.red.opacity(0.25))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.red.opacity(0.5), lineWidth: 1)
+                )
+        )
     }
 }

@@ -27,6 +27,7 @@ final class AuthViewModel: ObservableObject {
     
     private let firebase = FirebaseManager.shared
     private let secureEnclave = SecureEnclaveManager.shared
+    private let cloudFunctions = CloudFunctionsService.shared
     
     // MARK: - Email Sign Up
     
@@ -41,12 +42,8 @@ final class AuthViewModel: ObservableObject {
             let result = try await firebase.auth.createUser(withEmail: email, password: password)
             let uid = result.user.uid
             
-            // Create user document
-            try await firebase.createUserDocument(
-                uid: uid,
-                email: email,
-                displayName: displayName.isEmpty ? email : displayName
-            )
+            // Call Cloud Function to create user document and assign role
+            try await callOnFirstLoginAssignRoleIfNeeded(uid: uid)
             
             // Generate Secure Enclave key and upload public key
             await generateAndUploadKey()
@@ -73,7 +70,10 @@ final class AuthViewModel: ObservableObject {
         errorMessage = nil
         
         do {
-            try await firebase.auth.signIn(withEmail: email, password: password)
+            let result = try await firebase.auth.signIn(withEmail: email, password: password)
+            
+            // Ensure user document exists; if missing, call Cloud Function to create it
+            try await callOnFirstLoginAssignRoleIfNeeded(uid: result.user.uid)
             
             // Check if key exists, if not generate one
             if !secureEnclave.hasExistingKey() {
@@ -121,18 +121,9 @@ final class AuthViewModel: ObservableObject {
             let authResult = try await firebase.auth.signIn(with: result)
             
             let user = authResult.user
-            let email = user.email ?? ""
-            let displayName = user.displayName ?? email
             
-            // Check if user document exists, create if not
-            let docSnapshot = try await firebase.usersCollection.document(user.uid).getDocument()
-            if !docSnapshot.exists {
-                try await firebase.createUserDocument(
-                    uid: user.uid,
-                    email: email,
-                    displayName: displayName
-                )
-            }
+            // Ensure user document exists; if missing, call Cloud Function to create it
+            try await callOnFirstLoginAssignRoleIfNeeded(uid: user.uid)
             
             // Generate Secure Enclave key if needed
             if !secureEnclave.hasExistingKey() {
@@ -196,18 +187,9 @@ final class AuthViewModel: ObservableObject {
             
             let authResult = try await firebase.auth.signIn(with: credential)
             let user = authResult.user
-            let userEmail = user.email ?? appleResult.email ?? ""
-            let userName = appleResult.fullName ?? user.displayName ?? userEmail
             
-            // Check if user document exists, create if not
-            let docSnapshot = try await firebase.usersCollection.document(user.uid).getDocument()
-            if !docSnapshot.exists {
-                try await firebase.createUserDocument(
-                    uid: user.uid,
-                    email: userEmail,
-                    displayName: userName
-                )
-            }
+            // Ensure user document exists; if missing, call Cloud Function to create it
+            try await callOnFirstLoginAssignRoleIfNeeded(uid: user.uid)
             
             // Generate Secure Enclave key if needed
             if !secureEnclave.hasExistingKey() {
@@ -260,6 +242,17 @@ final class AuthViewModel: ObservableObject {
         let inputData = Data(input.utf8)
         let hashedData = SHA256.hash(data: inputData)
         return hashedData.compactMap { String(format: "%02x", $0) }.joined()
+    }
+    
+    // MARK: - First Login Role Assignment
+    
+    /// Checks if the user document exists in Firestore; if missing, calls the
+    /// `onFirstLoginAssignRole` Cloud Function to create it with the appropriate role.
+    private func callOnFirstLoginAssignRoleIfNeeded(uid: String) async throws {
+        let snapshot = try await firebase.usersCollection.document(uid).getDocument()
+        if !snapshot.exists {
+            try await cloudFunctions.onFirstLoginAssignRole()
+        }
     }
     
     // MARK: - Key Generation

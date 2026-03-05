@@ -224,6 +224,73 @@ final class DistanceCalculationTests: XCTestCase {
     
     // MARK: - Centroid
     
+    // MARK: - Self-Intersecting Polygon Detection
+    
+    func testSimpleTriangleIsNotSelfIntersecting() {
+        let triangle: [CLLocationCoordinate2D] = [
+            CLLocationCoordinate2D(latitude: 0, longitude: 0),
+            CLLocationCoordinate2D(latitude: 0, longitude: 1),
+            CLLocationCoordinate2D(latitude: 1, longitude: 0.5),
+        ]
+        XCTAssertFalse(PolygonMath.isPolygonSelfIntersecting(triangle))
+    }
+    
+    func testSimpleSquareIsNotSelfIntersecting() {
+        let square: [CLLocationCoordinate2D] = [
+            CLLocationCoordinate2D(latitude: 0, longitude: 0),
+            CLLocationCoordinate2D(latitude: 0, longitude: 1),
+            CLLocationCoordinate2D(latitude: 1, longitude: 1),
+            CLLocationCoordinate2D(latitude: 1, longitude: 0),
+        ]
+        XCTAssertFalse(PolygonMath.isPolygonSelfIntersecting(square))
+    }
+    
+    func testBowTieIsSelfIntersecting() {
+        // A "bow-tie" or figure-8 shape where edges cross
+        let bowTie: [CLLocationCoordinate2D] = [
+            CLLocationCoordinate2D(latitude: 0, longitude: 0),
+            CLLocationCoordinate2D(latitude: 1, longitude: 1),
+            CLLocationCoordinate2D(latitude: 0, longitude: 1),
+            CLLocationCoordinate2D(latitude: 1, longitude: 0),
+        ]
+        XCTAssertTrue(PolygonMath.isPolygonSelfIntersecting(bowTie))
+    }
+    
+    func testFewerThan4PointsCannotSelfIntersect() {
+        let triangle: [CLLocationCoordinate2D] = [
+            CLLocationCoordinate2D(latitude: 0, longitude: 0),
+            CLLocationCoordinate2D(latitude: 1, longitude: 0),
+            CLLocationCoordinate2D(latitude: 0.5, longitude: 1),
+        ]
+        XCTAssertFalse(PolygonMath.isPolygonSelfIntersecting(triangle))
+        XCTAssertFalse(PolygonMath.isPolygonSelfIntersecting([]))
+    }
+    
+    func testConvexPentagonIsNotSelfIntersecting() {
+        let pentagon: [CLLocationCoordinate2D] = [
+            CLLocationCoordinate2D(latitude: 1, longitude: 0),
+            CLLocationCoordinate2D(latitude: 0.309, longitude: 0.951),
+            CLLocationCoordinate2D(latitude: -0.809, longitude: 0.588),
+            CLLocationCoordinate2D(latitude: -0.809, longitude: -0.588),
+            CLLocationCoordinate2D(latitude: 0.309, longitude: -0.951),
+        ]
+        XCTAssertFalse(PolygonMath.isPolygonSelfIntersecting(pentagon))
+    }
+    
+    func testStarShapeIsSelfIntersecting() {
+        // A 5-pointed star drawn by connecting every other vertex of a regular pentagon
+        let star: [CLLocationCoordinate2D] = [
+            CLLocationCoordinate2D(latitude: 1, longitude: 0),
+            CLLocationCoordinate2D(latitude: -0.809, longitude: 0.588),
+            CLLocationCoordinate2D(latitude: 0.309, longitude: -0.951),
+            CLLocationCoordinate2D(latitude: 0.309, longitude: 0.951),
+            CLLocationCoordinate2D(latitude: -0.809, longitude: -0.588),
+        ]
+        XCTAssertTrue(PolygonMath.isPolygonSelfIntersecting(star))
+    }
+    
+    // MARK: - Centroid
+    
     func testCentroidOfSquare() {
         let square: [CLLocationCoordinate2D] = [
             CLLocationCoordinate2D(latitude: 0, longitude: 0),

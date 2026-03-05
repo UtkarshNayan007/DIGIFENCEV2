@@ -31,6 +31,7 @@ final class FirebaseManager: ObservableObject {
     var usersCollection: CollectionReference { db.collection("users") }
     var eventsCollection: CollectionReference { db.collection("events") }
     var ticketsCollection: CollectionReference { db.collection("tickets") }
+    var attendanceLogsCollection: CollectionReference { db.collection("attendance_logs") }
     
     private init() {
         self.auth = Auth.auth()
@@ -99,11 +100,21 @@ final class FirebaseManager: ObservableObject {
     
     // MARK: - User Document CRUD
     
+    func fetchUser(uid: String) async throws -> AppUser? {
+        let snapshot = try await usersCollection.document(uid).getDocument()
+        guard snapshot.exists else { return nil }
+        return try snapshot.data(as: AppUser.self)
+    }
+    
     func createUserDocument(uid: String, email: String, displayName: String) async throws {
+        try await createUserDocument(uid: uid, email: email, role: .user, displayName: displayName)
+    }
+    
+    func createUserDocument(uid: String, email: String, role: AppUser.UserRole, displayName: String = "") async throws {
         let userData: [String: Any] = [
             "email": email,
             "displayName": displayName,
-            "role": "user",
+            "role": role.rawValue,
             "publicKey": NSNull(),
             "deviceId": NSNull(),
             "fcmToken": NSNull(),

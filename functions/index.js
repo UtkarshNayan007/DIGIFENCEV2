@@ -643,42 +643,95 @@ exports.handleHysteresis = onSchedule("every 1 minutes", async () => {
     .where("insideFence", "==", false)
     .get();
 
-  if (ticketsSnap.empty) {
-    console.log("handleHysteresis: no active tickets outside fence.");
-    return;
-  }
-
   const batch = db.batch();
   let expiredCount = 0;
 
-  for (const doc of ticketsSnap.docs) {
-    const ticketId = doc.id;
-    const minutesSinceExit = await getMinutesSinceExit(ticketId);
+  if (ticketsSnap.empty) {
+    console.log("handleHysteresis: no active tickets outside fence.");
+  } else {
+    for (const doc of ticketsSnap.docs) {
+      const ticketId = doc.id;
+      const minutesSinceExit = await getMinutesSinceExit(ticketId);
 
-    if (minutesSinceExit >= 3) {
-      batch.update(doc.ref, {
-        status: "expired",
-        biometricVerified: false,
-      });
+      if (minutesSinceExit >= 3) {
+        batch.update(doc.ref, {
+          status: "expired",
+          biometricVerified: false,
+        });
 
-      const logRef = db.collection("attendance_logs").doc();
-      batch.set(logRef, {
-        ticketId,
-        type: "expired",
-        detail: {
-          reason: "hysteresis_timeout",
-          minutesOutside: Math.round(minutesSinceExit),
-        },
-        timestamp: FieldValue.serverTimestamp(),
-      });
-      expiredCount++;
+        const logRef = db.collection("attendance_logs").doc();
+        batch.set(logRef, {
+          ticketId,
+          type: "expired",
+          detail: {
+            reason: "hysteresis_timeout",
+            minutesOutside: Math.round(minutesSinceExit),
+          },
+          timestamp: FieldValue.serverTimestamp(),
+        });
+        expiredCount++;
+      }
+    }
+
+    if (expiredCount > 0) {
+      await batch.commit();
+      console.log(
+        `handleHysteresis: expired ${expiredCount} ticket(s) after 3-min timeout.`
+      );
     }
   }
 
-  if (expiredCount > 0) {
-    await batch.commit();
+  // ─── Event auto-close: close events past their endsAt ───────────────────
+  const now = new Date();
+  const eventsSnap = await db
+    .collection("events")
+    .where("isActive", "==", true)
+    .where("endsAt", "<=", now)
+    .get();
+
+  if (eventsSnap.empty) {
+    console.log("handleHysteresis: no events to auto-close.");
+    return;
+  }
+
+  for (const eventDoc of eventsSnap.docs) {
+    const eventId = eventDoc.id;
+    const eventBatch = db.batch();
+    let closedTickets = 0;
+
+    // Deactivate the event
+    eventBatch.update(eventDoc.ref, { isActive: false });
+
+    // Find all active tickets for this event and expire them
+    const activeTicketsSnap = await db
+      .collection("tickets")
+      .where("eventId", "==", eventId)
+      .where("status", "==", "active")
+      .get();
+
+    for (const ticketDoc of activeTicketsSnap.docs) {
+      eventBatch.update(ticketDoc.ref, {
+        status: "expired",
+        biometricVerified: false,
+        insideFence: false,
+      });
+
+      const logRef = db.collection("attendance_logs").doc();
+      eventBatch.set(logRef, {
+        ticketId: ticketDoc.id,
+        type: "expired",
+        detail: {
+          reason: "event_ended",
+          eventId,
+        },
+        timestamp: FieldValue.serverTimestamp(),
+      });
+      closedTickets++;
+    }
+
+    await eventBatch.commit();
     console.log(
-      `handleHysteresis: expired ${expiredCount} ticket(s) after 3-min timeout.`
+      `handleHysteresis: closed event ${eventId}, expired ${closedTickets} active ticket(s).`
     );
   }
 });

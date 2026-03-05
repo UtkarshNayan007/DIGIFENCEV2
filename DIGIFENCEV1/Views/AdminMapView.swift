@@ -296,6 +296,27 @@ struct AdminMapView: View {
 struct CreateEventSheet: View {
     @ObservedObject var viewModel: AdminViewModel
     @Environment(\.dismiss) private var dismiss
+    @State private var showConfirmation = false
+    
+    private var confirmationMessage: String {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        dateFormatter.timeStyle = .short
+        
+        var lines: [String] = []
+        lines.append("Title: \(viewModel.title)")
+        if !viewModel.description.isEmpty {
+            lines.append("Description: \(viewModel.description)")
+        }
+        lines.append("Capacity: \(viewModel.capacity)")
+        lines.append("Polygon Points: \(viewModel.polygonPoints.count)")
+        lines.append("Starts: \(dateFormatter.string(from: viewModel.startsAt))")
+        lines.append("Ends: \(dateFormatter.string(from: viewModel.endsAt))")
+        if viewModel.ticketPrice > 0 {
+            lines.append("Price: ₹\(String(format: "%.2f", viewModel.ticketPrice))")
+        }
+        return lines.joined(separator: "\n")
+    }
     
     var body: some View {
         NavigationView {
@@ -441,14 +462,9 @@ struct CreateEventSheet: View {
                                 .foregroundColor(viewModel.isPolygonValid ? .green.opacity(0.8) : .orange.opacity(0.8))
                         }
                         
-                        // Create button
+                        // Create button — triggers confirmation first
                         Button(action: {
-                            Task {
-                                await viewModel.createEvent()
-                                if viewModel.showSuccess {
-                                    dismiss()
-                                }
-                            }
+                            showConfirmation = true
                         }) {
                             HStack {
                                 if viewModel.isLoading {
@@ -471,6 +487,19 @@ struct CreateEventSheet: View {
                             .clipShape(RoundedRectangle(cornerRadius: 14))
                         }
                         .disabled(viewModel.isLoading || !viewModel.isPolygonValid)
+                        .alert("Confirm Event Creation", isPresented: $showConfirmation) {
+                            Button("Confirm", role: nil) {
+                                Task {
+                                    await viewModel.createEvent()
+                                    if viewModel.showSuccess {
+                                        dismiss()
+                                    }
+                                }
+                            }
+                            Button("Cancel", role: .cancel) {}
+                        } message: {
+                            Text(confirmationMessage)
+                        }
                     }
                     .padding(20)
                 }

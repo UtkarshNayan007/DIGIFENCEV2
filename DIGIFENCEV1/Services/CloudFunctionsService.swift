@@ -90,6 +90,13 @@ final class CloudFunctionsService {
         _ = try await callable.call(["ticketId": ticketId])
     }
     
+    // MARK: - On First Login Assign Role
+    
+    func onFirstLoginAssignRole() async throws {
+        let callable = functions.httpsCallable("onFirstLoginAssignRole")
+        _ = try await callable.call()
+    }
+    
     // MARK: - Revoke Public Key
     
     func revokePublicKey(targetUserId: String) async throws {

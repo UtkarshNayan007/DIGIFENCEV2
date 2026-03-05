@@ -158,6 +158,99 @@ enum PolygonMath {
         return edgeDistance <= bufferMeters
     }
     
+    // MARK: - Self-Intersecting Polygon Detection
+    
+    /// Determines whether a polygon is self-intersecting by checking if any
+    /// pair of non-adjacent edges cross each other.
+    ///
+    /// Uses the standard line-segment intersection test based on orientation
+    /// (cross-product sign). Two edges are "adjacent" if they share a vertex,
+    /// so we skip those pairs.
+    ///
+    /// - Parameter polygon: Ordered array of polygon vertices (minimum 3).
+    /// - Returns: `true` if any two non-adjacent edges intersect.
+    static func isPolygonSelfIntersecting(
+        _ polygon: [CLLocationCoordinate2D]
+    ) -> Bool {
+        let n = polygon.count
+        guard n >= 4 else { return false } // A triangle cannot self-intersect
+        
+        for i in 0..<n {
+            let a1 = polygon[i]
+            let a2 = polygon[(i + 1) % n]
+            
+            for j in (i + 2)..<n {
+                // Skip adjacent edges (share a vertex)
+                if i == 0 && j == n - 1 { continue }
+                
+                let b1 = polygon[j]
+                let b2 = polygon[(j + 1) % n]
+                
+                if segmentsIntersect(a1, a2, b1, b2) {
+                    return true
+                }
+            }
+        }
+        
+        return false
+    }
+    
+    // MARK: - Segment Intersection Helper
+    
+    /// Tests whether two line segments (p1→p2) and (p3→p4) properly intersect.
+    ///
+    /// Uses the orientation (cross-product) method. Two segments intersect if
+    /// and only if they straddle each other — i.e., the endpoints of each
+    /// segment lie on opposite sides of the line containing the other segment.
+    private static func segmentsIntersect(
+        _ p1: CLLocationCoordinate2D,
+        _ p2: CLLocationCoordinate2D,
+        _ p3: CLLocationCoordinate2D,
+        _ p4: CLLocationCoordinate2D
+    ) -> Bool {
+        let d1 = crossProduct(p3, p4, p1)
+        let d2 = crossProduct(p3, p4, p2)
+        let d3 = crossProduct(p1, p2, p3)
+        let d4 = crossProduct(p1, p2, p4)
+        
+        if ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+           ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0)) {
+            return true
+        }
+        
+        // Collinear cases: check if any endpoint lies on the other segment
+        if d1 == 0 && onSegment(p3, p4, p1) { return true }
+        if d2 == 0 && onSegment(p3, p4, p2) { return true }
+        if d3 == 0 && onSegment(p1, p2, p3) { return true }
+        if d4 == 0 && onSegment(p1, p2, p4) { return true }
+        
+        return false
+    }
+    
+    /// Cross product of vectors (b - a) and (c - a).
+    /// Positive → counter-clockwise, negative → clockwise, zero → collinear.
+    private static func crossProduct(
+        _ a: CLLocationCoordinate2D,
+        _ b: CLLocationCoordinate2D,
+        _ c: CLLocationCoordinate2D
+    ) -> Double {
+        (b.longitude - a.longitude) * (c.latitude - a.latitude) -
+        (b.latitude - a.latitude) * (c.longitude - a.longitude)
+    }
+    
+    /// Checks whether point `p` lies on the segment from `a` to `b`,
+    /// assuming all three are collinear.
+    private static func onSegment(
+        _ a: CLLocationCoordinate2D,
+        _ b: CLLocationCoordinate2D,
+        _ p: CLLocationCoordinate2D
+    ) -> Bool {
+        min(a.longitude, b.longitude) <= p.longitude &&
+        p.longitude <= max(a.longitude, b.longitude) &&
+        min(a.latitude, b.latitude) <= p.latitude &&
+        p.latitude <= max(a.latitude, b.latitude)
+    }
+    
     // MARK: - Polygon Centroid
     
     /// Computes the geometric centroid of a polygon.

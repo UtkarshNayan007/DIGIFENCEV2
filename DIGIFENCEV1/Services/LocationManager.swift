@@ -176,6 +176,16 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         polygonManager.hasActiveGraceTimer
     }
     
+    /// Whether a grace period countdown is currently active.
+    var isGracePeriodActive: Bool {
+        polygonManager.isGracePeriodActive
+    }
+    
+    /// Remaining seconds on the grace period countdown.
+    var gracePeriodRemainingSeconds: Int {
+        polygonManager.gracePeriodRemainingSeconds
+    }
+    
     // MARK: - Persisted Region IDs
     
     private func getMonitoredEventIds() -> [String] {
