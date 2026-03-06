@@ -233,156 +233,169 @@ exports.activateTicket = onCall(async (request) => {
     );
   }
 
-  // Use a transaction for atomicity
-  const result = await db.runTransaction(async (tx) => {
-    const ticketRef = db.collection("tickets").doc(ticketId);
-    const nonceRef = db.collection("activation_nonces").doc(nonceId);
-    const ticketSnap = await tx.get(ticketRef);
-    const nonceSnap = await tx.get(nonceRef);
+  let result;
+  try {
+    // Use a transaction for atomicity
+    result = await db.runTransaction(async (tx) => {
+      const ticketRef = db.collection("tickets").doc(ticketId);
+      const nonceRef = db.collection("activation_nonces").doc(nonceId);
+      const ticketSnap = await tx.get(ticketRef);
+      const nonceSnap = await tx.get(nonceRef);
 
-    // Validate ticket
-    if (!ticketSnap.exists) {
-      throw new HttpsError("not-found", "Ticket not found.");
-    }
-    const ticket = ticketSnap.data();
-    if (ticket.ownerId !== uid) {
-      throw new HttpsError("permission-denied", "You do not own this ticket.");
-    }
+      // Validate ticket
+      if (!ticketSnap.exists) {
+        throw new HttpsError("not-found", "Ticket not found.");
+      }
+      const ticket = ticketSnap.data();
+      if (ticket.ownerId !== uid) {
+        throw new HttpsError("permission-denied", "You do not own this ticket.");
+      }
 
-    // Validate nonce
-    if (!nonceSnap.exists) {
-      throw new HttpsError("not-found", "Nonce not found.");
-    }
-    const nonceData = nonceSnap.data();
-    if (nonceData.used) {
-      throw new HttpsError("failed-precondition", "Nonce already used.");
-    }
-    if (nonceData.ticketId !== ticketId) {
-      throw new HttpsError("invalid-argument", "Nonce does not match ticket.");
-    }
+      // Validate nonce
+      if (!nonceSnap.exists) {
+        throw new HttpsError("not-found", "Nonce not found.");
+      }
+      const nonceData = nonceSnap.data();
+      if (nonceData.used) {
+        throw new HttpsError("failed-precondition", "Nonce already used.");
+      }
+      if (nonceData.ticketId !== ticketId) {
+        throw new HttpsError("invalid-argument", "Nonce does not match ticket.");
+      }
 
-    const expiresAt = nonceData.expiresAt.toDate
-      ? nonceData.expiresAt.toDate()
-      : new Date(nonceData.expiresAt);
-    if (expiresAt < new Date()) {
-      throw new HttpsError("deadline-exceeded", "Nonce has expired.");
-    }
+      const expiresAt = nonceData.expiresAt.toDate
+        ? nonceData.expiresAt.toDate()
+        : new Date(nonceData.expiresAt);
+      if (expiresAt < new Date()) {
+        throw new HttpsError("deadline-exceeded", "Nonce has expired.");
+      }
 
-    // Load event to check polygon geofence
-    const eventRef = db.collection("events").doc(ticket.eventId);
-    const eventSnap = await tx.get(eventRef);
-    if (!eventSnap.exists) {
-      throw new HttpsError("not-found", "Event not found.");
-    }
-    const event = eventSnap.data();
+      // Load event to check polygon geofence
+      const eventRef = db.collection("events").doc(ticket.eventId);
+      const eventSnap = await tx.get(eventRef);
+      if (!eventSnap.exists) {
+        throw new HttpsError("not-found", "Event not found.");
+      }
+      const event = eventSnap.data();
 
-    // Polygon-based geofence validation
-    const userPoint = { lat, lng };
-    const polygon = event.polygonCoordinates;
+      // Polygon-based geofence validation
+      const userPoint = { lat, lng };
+      const polygon = event.polygonCoordinates;
 
-    if (!polygon || polygon.length < 3) {
-      throw new HttpsError(
-        "failed-precondition",
-        "Event has invalid polygon geofence."
+      if (!polygon || polygon.length < 3) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Event has invalid polygon geofence."
+        );
+      }
+
+      const isInside = isPointInsidePolygon(userPoint, polygon);
+      const edgeDistance = distanceFromPointToPolygonEdge(userPoint, polygon);
+      const activationBuffer = 10; // 10 meters
+
+      // User must be OUTSIDE polygon but within 10m of nearest edge
+      // OR already inside (allow activation from inside too for edge cases)
+      if (!isInside && edgeDistance > activationBuffer) {
+        // Log suspicious attempt
+        const logRef = db.collection("attendance_logs").doc();
+        tx.set(logRef, {
+          ticketId,
+          type: "activated",
+          detail: {
+            success: false,
+            reason: "outside_activation_zone",
+            edgeDistance: Math.round(edgeDistance),
+            maxAllowed: activationBuffer,
+            userLat: lat,
+            userLng: lng,
+            isInside,
+          },
+          timestamp: FieldValue.serverTimestamp(),
+        });
+        throw new HttpsError(
+          "failed-precondition",
+          `Outside activation zone. Distance to geofence: ${Math.round(edgeDistance)}m, allowed: ${activationBuffer}m.`
+        );
+      }
+
+      // Verify signature
+      const userRef = db.collection("users").doc(uid);
+      const userSnap = await tx.get(userRef);
+      if (!userSnap.exists) {
+        throw new HttpsError("not-found", "User profile not found.");
+      }
+      const user = userSnap.data();
+      if (!user.publicKey) {
+        throw new HttpsError(
+          "failed-precondition",
+          "No public key registered. Enroll biometrics first."
+        );
+      }
+
+      const signatureValid = verifySignature(
+        user.publicKey,
+        nonceData.nonce,
+        signatureBase64
       );
-    }
+      if (!signatureValid) {
+        // Log suspicious attempt
+        const logRef = db.collection("attendance_logs").doc();
+        tx.set(logRef, {
+          ticketId,
+          type: "activated",
+          detail: {
+            success: false,
+            reason: "invalid_signature",
+          },
+          timestamp: FieldValue.serverTimestamp(),
+        });
+        throw new HttpsError(
+          "unauthenticated",
+          "Biometric signature verification failed."
+        );
+      }
 
-    const isInside = isPointInsidePolygon(userPoint, polygon);
-    const edgeDistance = distanceFromPointToPolygonEdge(userPoint, polygon);
-    const activationBuffer = 10; // 10 meters
+      // All checks passed — activate ticket
+      const entryCode = generateEntryCode();
 
-    // User must be OUTSIDE polygon but within 10m of nearest edge
-    // OR already inside (allow activation from inside too for edge cases)
-    if (!isInside && edgeDistance > activationBuffer) {
-      // Log suspicious attempt
-      const logRef = db.collection("attendance_logs").doc();
-      tx.set(logRef, {
-        ticketId,
-        type: "activated",
-        detail: {
-          success: false,
-          reason: "outside_activation_zone",
-          edgeDistance: Math.round(edgeDistance),
-          maxAllowed: activationBuffer,
-          userLat: lat,
-          userLng: lng,
-          isInside,
-        },
-        timestamp: FieldValue.serverTimestamp(),
-      });
-      throw new HttpsError(
-        "failed-precondition",
-        `Outside activation zone. Distance to geofence: ${Math.round(edgeDistance)}m, allowed: ${activationBuffer}m.`
-      );
-    }
-
-    // Verify signature
-    const userRef = db.collection("users").doc(uid);
-    const userSnap = await tx.get(userRef);
-    if (!userSnap.exists) {
-      throw new HttpsError("not-found", "User profile not found.");
-    }
-    const user = userSnap.data();
-    if (!user.publicKey) {
-      throw new HttpsError(
-        "failed-precondition",
-        "No public key registered. Enroll biometrics first."
-      );
-    }
-
-    const signatureValid = verifySignature(
-      user.publicKey,
-      nonceData.nonce,
-      signatureBase64
-    );
-    if (!signatureValid) {
-      // Log suspicious attempt
-      const logRef = db.collection("attendance_logs").doc();
-      tx.set(logRef, {
-        ticketId,
-        type: "activated",
-        detail: {
-          success: false,
-          reason: "invalid_signature",
-        },
-        timestamp: FieldValue.serverTimestamp(),
-      });
-      throw new HttpsError(
-        "unauthenticated",
-        "Biometric signature verification failed."
-      );
-    }
-
-    // All checks passed — activate ticket
-    const entryCode = generateEntryCode();
-
-    tx.update(ticketRef, {
-      status: "active",
-      biometricVerified: true,
-      insideFence: true,
-      activatedAt: FieldValue.serverTimestamp(),
-      entryCode,
-    });
-
-    // Mark nonce as used
-    tx.update(nonceRef, { used: true });
-
-    // Write attendance log
-    const logRef = db.collection("attendance_logs").doc();
-    tx.set(logRef, {
-      ticketId,
-      type: "activated",
-      detail: {
-        success: true,
-        edgeDistance: Math.round(edgeDistance),
-        isInside,
+      tx.update(ticketRef, {
+        status: "active",
+        biometricVerified: true,
+        insideFence: true,
+        activatedAt: FieldValue.serverTimestamp(),
         entryCode,
-      },
-      timestamp: FieldValue.serverTimestamp(),
-    });
+      });
 
-    return { entryCode };
-  });
+      // Mark nonce as used
+      tx.update(nonceRef, { used: true });
+
+      // Write attendance log
+      const logRef = db.collection("attendance_logs").doc();
+      tx.set(logRef, {
+        ticketId,
+        type: "activated",
+        detail: {
+          success: true,
+          edgeDistance: Math.round(edgeDistance),
+          isInside,
+          entryCode,
+        },
+        timestamp: FieldValue.serverTimestamp(),
+      });
+
+      return { entryCode };
+    });
+  } catch (err) {
+    // Re-throw HttpsError as-is; wrap unexpected errors with descriptive message
+    if (err instanceof HttpsError) {
+      throw err;
+    }
+    console.error("activateTicket unexpected error:", err.message, err.stack);
+    throw new HttpsError(
+      "internal",
+      `Activation failed: ${err.message || "Unknown server error. Please try again."}`
+    );
+  }
 
   return { success: true, entryCode: result.entryCode };
 });

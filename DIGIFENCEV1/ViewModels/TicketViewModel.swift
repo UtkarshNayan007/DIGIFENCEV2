@@ -11,6 +11,7 @@ import Combine
 import SwiftUI
 import FirebaseFirestore
 import FirebaseAuth
+import FirebaseFunctions
 import CoreLocation
 
 @MainActor
@@ -84,7 +85,8 @@ final class TicketViewModel: ObservableObject {
     /// Complete activation flow:
     /// 1. Request nonce from server
     /// 2. Sign nonce with Secure Enclave (triggers biometric)
-    /// 3. Send signature + location to server for verification
+    /// 3. Get location with retry
+    /// 4. Send signature + location to server for verification
     func activateTicket(_ ticketId: String) async {
         isActivating = true
         errorMessage = nil
@@ -99,23 +101,32 @@ final class TicketViewModel: ObservableObject {
             let signatureBase64 = try secureEnclave.signNonce(nonceResponse.nonce)
             print("✅ Nonce signed with biometrics")
             
-            // Step 3: Get current location
+            // Step 3: Get current location with retry (up to 5 seconds)
             locationManager.requestCurrentLocation()
             
-            // Wait briefly for location update
-            try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+            var location: CLLocation?
+            for _ in 0..<10 {
+                try await Task.sleep(nanoseconds: 500_000_000) // 500ms
+                if let loc = locationManager.currentLocation {
+                    location = loc
+                    break
+                }
+                // Re-request in case the first one didn't fire
+                locationManager.requestCurrentLocation()
+            }
             
-            guard let location = locationManager.currentLocation else {
+            guard let finalLocation = location else {
                 throw ActivationError.locationUnavailable
             }
+            print("✅ Got location: \(finalLocation.coordinate.latitude), \(finalLocation.coordinate.longitude)")
             
             // Step 4: Call activate endpoint
             let result = try await cloudFunctions.activateTicket(
                 ticketId: ticketId,
                 nonceId: nonceResponse.nonceId,
                 signatureBase64: signatureBase64,
-                lat: location.coordinate.latitude,
-                lng: location.coordinate.longitude
+                lat: finalLocation.coordinate.latitude,
+                lng: finalLocation.coordinate.longitude
             )
             
             if result.success {
@@ -131,18 +142,46 @@ final class TicketViewModel: ObservableObject {
             errorMessage = error.localizedDescription
             showError = true
         } catch {
-            // Network failure — attempt offline queue
+            // Extract meaningful message from Firebase Functions errors
+            let message = Self.extractErrorMessage(from: error)
+            print("❌ Activation error: \(error)")
+            
             if let pending = pendingActivation,
                Date().timeIntervalSince(pending.timestamp) < 60 {
-                // Already have a pending activation attempt
                 errorMessage = "Activation pending. Will retry when connected."
             } else {
-                errorMessage = error.localizedDescription
+                errorMessage = message
             }
             showError = true
         }
         
         isActivating = false
+    }
+    
+    /// Extract a human-readable message from Firebase Functions errors.
+    /// Firebase wraps server errors as NSError with domain "com.firebase.functions"
+    /// and the actual message in localizedDescription or userInfo.
+    private static func extractErrorMessage(from error: Error) -> String {
+        let nsError = error as NSError
+        
+        // Check for Firebase Functions error with a descriptive message
+        if nsError.domain == FunctionsErrorDomain {
+            // The server message is usually in localizedDescription
+            let desc = nsError.localizedDescription
+            // If it's just a generic code name, try userInfo
+            if desc.isEmpty || desc == "INTERNAL" || desc == "internal" {
+                if let details = nsError.userInfo["details"] as? String, !details.isEmpty {
+                    return details
+                }
+                if let message = nsError.userInfo[NSLocalizedDescriptionKey] as? String, !message.isEmpty {
+                    return message
+                }
+                return "Server error. Please try again."
+            }
+            return desc
+        }
+        
+        return error.localizedDescription
     }
     
     // MARK: - Deactivate Ticket
