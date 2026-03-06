@@ -2,7 +2,7 @@
 //  LoginView.swift
 //  DIGIFENCEV1
 //
-//  Email + Google sign-in form with validation.
+//  Email + Google + Apple sign-in form with email verification UI.
 //
 
 import SwiftUI
@@ -44,7 +44,27 @@ struct LoginView: View {
                             .font(.system(size: 15))
                             .foregroundColor(.white.opacity(0.5))
                     }
-                    .padding(.bottom, 20)
+                    .padding(.bottom, 12)
+                    
+                    // Verification success banner
+                    if viewModel.showVerificationSent {
+                        verificationBanner
+                    }
+                    
+                    // Email verification info text
+                    if isSignUp {
+                        infoMessage(
+                            icon: "envelope.badge",
+                            text: "Please verify your email to activate your DigiFence account.",
+                            color: .orange
+                        )
+                    } else {
+                        infoMessage(
+                            icon: "exclamationmark.shield",
+                            text: "If your email is not verified you will not be able to login.",
+                            color: .cyan
+                        )
+                    }
                     
                     // Form
                     VStack(spacing: 16) {
@@ -104,6 +124,20 @@ struct LoginView: View {
                     }
                     .disabled(viewModel.isLoading)
                     .padding(.horizontal, 24)
+                    
+                    // Resend verification email button (visible after signup or failed login)
+                    if viewModel.showVerificationSent && !isSignUp {
+                        Button(action: {
+                            Task { await viewModel.resendVerificationEmail() }
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "envelope.arrow.triangle.branch")
+                                Text("Resend Verification Email")
+                            }
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.cyan)
+                        }
+                    }
                     
                     // Divider
                     HStack {
@@ -165,7 +199,10 @@ struct LoginView: View {
                     
                     // Toggle Sign Up / Sign In
                     Button(action: {
-                        withAnimation { isSignUp.toggle() }
+                        withAnimation {
+                            isSignUp.toggle()
+                            viewModel.showVerificationSent = false
+                        }
                     }) {
                         HStack(spacing: 4) {
                             Text(isSignUp ? "Already have an account?" : "Don't have an account?")
@@ -187,6 +224,50 @@ struct LoginView: View {
         } message: {
             Text(viewModel.errorMessage ?? "An unknown error occurred.")
         }
+    }
+    
+    // MARK: - Verification Banner
+    
+    private var verificationBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "envelope.badge.shield.half.filled")
+                .font(.system(size: 20))
+                .foregroundColor(.green)
+            
+            Text(viewModel.verificationMessage ?? "Verification email sent!")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.white.opacity(0.9))
+                .multilineTextAlignment(.leading)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.green.opacity(0.12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(Color.green.opacity(0.3), lineWidth: 1)
+                )
+        )
+        .padding(.horizontal, 24)
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+    
+    // MARK: - Info Message
+    
+    private func infoMessage(icon: String, text: String, color: Color) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 16))
+                .foregroundColor(color.opacity(0.8))
+            
+            Text(text)
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.5))
+                .multilineTextAlignment(.leading)
+        }
+        .padding(.horizontal, 28)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

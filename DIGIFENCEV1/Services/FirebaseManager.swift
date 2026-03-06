@@ -23,6 +23,7 @@ final class FirebaseManager: ObservableObject {
     @Published var appUser: AppUser?
     @Published var isLoggedIn = false
     @Published var isLoading = true
+    @Published var isBiometricAuthenticated = false
     
     private var authStateHandle: AuthStateDidChangeListenerHandle?
     private var userListener: ListenerRegistration?
@@ -58,13 +59,15 @@ final class FirebaseManager: ObservableObject {
             guard let self = self else { return }
             DispatchQueue.main.async {
                 self.currentUser = user
-                self.isLoggedIn = user != nil
+                // isLoggedIn requires both Firebase auth AND biometric verification
+                self.isLoggedIn = user != nil && self.isBiometricAuthenticated
                 if let user = user {
                     self.listenToUserDoc(uid: user.uid)
                 } else {
                     self.userListener?.remove()
                     self.userListener = nil
                     self.appUser = nil
+                    self.isBiometricAuthenticated = false
                 }
                 self.isLoading = false
             }
@@ -129,6 +132,8 @@ final class FirebaseManager: ObservableObject {
     // MARK: - Sign Out
     
     func signOut() throws {
+        isBiometricAuthenticated = false
+        isLoggedIn = false
         try auth.signOut()
     }
     

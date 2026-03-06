@@ -7,10 +7,12 @@
  */
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging");
 const crypto = require("crypto");
+const nodemailer = require("nodemailer");
 
 initializeApp();
 const db = getFirestore();
@@ -693,6 +695,86 @@ exports.handleHysteresis = onSchedule("every 1 minutes", async () => {
     console.log(
       `handleHysteresis: expired ${expiredCount} ticket(s) after 3-min timeout.`
     );
+  }
+});
+
+// ─── sendWelcomeEmail ───────────────────────────────────────────────────────
+
+/**
+ * Firestore trigger: sends a welcome email when a new user document is created.
+ *
+ * Requires environment config:
+ *   firebase functions:config:set mail.user="you@gmail.com" mail.pass="app-password"
+ *
+ * Or set via defineString for v2:
+ *   MAIL_USER and MAIL_PASS environment variables in Cloud Functions.
+ */
+exports.sendWelcomeEmail = onDocumentCreated("users/{userId}", async (event) => {
+  const userData = event.data?.data();
+  if (!userData || !userData.email) {
+    console.log("sendWelcomeEmail: No email found in user document, skipping.");
+    return;
+  }
+
+  const email = userData.email;
+  const displayName = userData.displayName || "there";
+
+  // Get mail credentials from environment
+  const mailUser = process.env.MAIL_USER;
+  const mailPass = process.env.MAIL_PASS;
+
+  if (!mailUser || !mailPass) {
+    console.warn(
+      "sendWelcomeEmail: MAIL_USER or MAIL_PASS not configured. " +
+      "Set them with: firebase functions:config:set mail.user='...' mail.pass='...'"
+    );
+    return;
+  }
+
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: mailUser,
+      pass: mailPass,
+    },
+  });
+
+  const mailOptions = {
+    from: `"DigiFence" <${mailUser}>`,
+    to: email,
+    subject: "Welcome to DigiFence",
+    html: `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 40px 20px; background: #0d0d1e; color: #ffffff; border-radius: 16px;">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="font-size: 28px; margin: 0; color: #00d4ff;">DigiFence</h1>
+          <p style="color: rgba(255,255,255,0.5); font-size: 14px; margin-top: 4px;">Secure Event Access</p>
+        </div>
+        <h2 style="color: #ffffff; font-size: 22px;">Welcome, ${displayName}!</h2>
+        <p style="color: rgba(255,255,255,0.8); line-height: 1.6; font-size: 16px;">
+          Welcome to the secure world of events.
+        </p>
+        <p style="color: rgba(255,255,255,0.8); line-height: 1.6; font-size: 16px;">
+          With DigiFence, your event access is protected by <strong>geofencing</strong> and <strong>identity verification</strong>.
+          Only verified guests can enter secured venues.
+        </p>
+        <p style="color: rgba(255,255,255,0.8); line-height: 1.6; font-size: 16px;">
+          Enjoy a seamless and secure event experience.
+        </p>
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); text-align: center;">
+          <p style="color: rgba(255,255,255,0.3); font-size: 12px;">
+            © ${new Date().getFullYear()} DigiFence. All rights reserved.
+          </p>
+        </div>
+      </div>
+    `,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`Welcome email sent to ${email}`);
+  } catch (err) {
+    console.error("Failed to send welcome email:", err.message);
+    // Non-fatal — don't throw, just log
   }
 });
 

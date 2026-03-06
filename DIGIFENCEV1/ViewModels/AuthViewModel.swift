@@ -2,8 +2,11 @@
 //  AuthViewModel.swift
 //  DIGIFENCEV1
 //
-//  Handles email/password and Google sign-in, user document creation,
-//  and Secure Enclave key generation on first sign-up.
+//  Handles email/password, Google, and Apple sign-in with:
+//  • Email verification on signup
+//  • Email-verified gate on login
+//  • Biometric MFA (FaceID/TouchID) after login
+//  • Secure Enclave key generation on first sign-up
 //
 
 import Foundation
@@ -25,8 +28,13 @@ final class AuthViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var showError = false
     
+    // Email verification state
+    @Published var showVerificationSent = false
+    @Published var verificationMessage: String?
+    
     private let firebase = FirebaseManager.shared
     private let secureEnclave = SecureEnclaveManager.shared
+    private let biometricAuth = BiometricAuthManager.shared
     
     // MARK: - Email Sign Up
     
@@ -35,29 +43,33 @@ final class AuthViewModel: ObservableObject {
         
         isLoading = true
         errorMessage = nil
+        showVerificationSent = false
         
         do {
-            // Create Firebase Auth user
+            // Step 1: Create Firebase Auth user
             let result = try await firebase.auth.createUser(withEmail: email, password: password)
             let uid = result.user.uid
             
-            // Create user document
+            // Step 2: Create user document in Firestore
             try await firebase.createUserDocument(
                 uid: uid,
                 email: email,
                 displayName: displayName.isEmpty ? email : displayName
             )
             
-            // Generate Secure Enclave key and upload public key
-            await generateAndUploadKey()
+            // Step 3: Send email verification
+            try await result.user.sendEmailVerification()
+            print("📧 Verification email sent to \(email)")
             
-            // Request push notification permission
-            Task {
-                await PushManager.shared.requestPermission()
-            }
+            // Step 4: Sign out — user must verify email before logging in
+            try firebase.signOut()
+            
+            // Step 5: Show verification message
+            verificationMessage = "Verification email sent to \(email). Please verify your email before logging in."
+            showVerificationSent = true
             
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = AuthErrorHandler.message(for: error)
             showError = true
         }
         
@@ -73,20 +85,44 @@ final class AuthViewModel: ObservableObject {
         errorMessage = nil
         
         do {
-            try await firebase.auth.signIn(withEmail: email, password: password)
+            // Step 1: Firebase sign-in
+            let result = try await firebase.auth.signIn(withEmail: email, password: password)
             
-            // Check if key exists, if not generate one
+            // Step 2: Check email verification
+            // Reload user to get fresh isEmailVerified status
+            try await result.user.reload()
+            
+            guard result.user.isEmailVerified else {
+                // Not verified — sign out and block
+                try firebase.signOut()
+                errorMessage = "Please verify your email before accessing DigiFence. Check your inbox for the verification link."
+                showError = true
+                isLoading = false
+                return
+            }
+            
+            // Step 3: Biometric MFA
+            let biometricPassed = await performBiometricMFA()
+            guard biometricPassed else {
+                // Biometric failed — sign out
+                try firebase.signOut()
+                isLoading = false
+                return
+            }
+            
+            // Step 4: Mark biometric authenticated
+            firebase.isBiometricAuthenticated = true
+            
+            // Step 5: Generate Secure Enclave key if needed
             if !secureEnclave.hasExistingKey() {
                 await generateAndUploadKey()
             }
             
-            // Request push notification permission
-            Task {
-                await PushManager.shared.requestPermission()
-            }
+            // Step 6: Request push notification permission
+            Task { await PushManager.shared.requestPermission() }
             
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = AuthErrorHandler.message(for: error)
             showError = true
         }
         
@@ -100,7 +136,6 @@ final class AuthViewModel: ObservableObject {
         errorMessage = nil
         
         do {
-            // Get CLIENT_ID from GoogleService-Info.plist
             guard let clientID = FirebaseApp.app()?.options.clientID else {
                 errorMessage = "Google Sign-In is not configured. Missing CLIENT_ID in GoogleService-Info.plist."
                 showError = true
@@ -108,7 +143,6 @@ final class AuthViewModel: ObservableObject {
                 return
             }
             
-            // Use Google Sign-In via OAuthProvider
             let provider = OAuthProvider(providerID: "google.com")
             provider.customParameters = [
                 "client_id": clientID,
@@ -116,56 +150,49 @@ final class AuthViewModel: ObservableObject {
             ]
             provider.scopes = ["email", "profile"]
             
-            // Present the sign-in flow
             let result = try await provider.credential(with: nil)
             let authResult = try await firebase.auth.signIn(with: result)
             
             let user = authResult.user
-            let email = user.email ?? ""
-            let displayName = user.displayName ?? email
+            let userEmail = user.email ?? ""
+            let userName = user.displayName ?? userEmail
             
-            // Check if user document exists, create if not
+            // Create user document if first login
             let docSnapshot = try await firebase.usersCollection.document(user.uid).getDocument()
             if !docSnapshot.exists {
                 try await firebase.createUserDocument(
                     uid: user.uid,
-                    email: email,
-                    displayName: displayName
+                    email: userEmail,
+                    displayName: userName
                 )
             }
             
-            // Generate Secure Enclave key if needed
+            // Biometric MFA (OAuth emails are pre-verified)
+            let biometricPassed = await performBiometricMFA()
+            guard biometricPassed else {
+                try firebase.signOut()
+                isLoading = false
+                return
+            }
+            
+            firebase.isBiometricAuthenticated = true
+            
             if !secureEnclave.hasExistingKey() {
                 await generateAndUploadKey()
             }
             
-            // Request push notification permission
-            Task {
-                await PushManager.shared.requestPermission()
-            }
+            Task { await PushManager.shared.requestPermission() }
             
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = AuthErrorHandler.message(for: error)
             showError = true
         }
         
         isLoading = false
     }
     
-    // MARK: - Sign Out
-    
-    func signOut() {
-        do {
-            try firebase.signOut()
-        } catch {
-            errorMessage = error.localizedDescription
-            showError = true
-        }
-    }
-    
     // MARK: - Apple Sign In
     
-    /// Current nonce used for Apple Sign-In (must be stored for verification)
     private var currentAppleNonce: String?
     
     func signInWithApple() async {
@@ -177,7 +204,6 @@ final class AuthViewModel: ObservableObject {
             currentAppleNonce = nonce
             let hashedNonce = sha256(nonce)
             
-            // Use ASAuthorizationController via the helper
             let appleResult = try await performAppleSignIn(hashedNonce: hashedNonce)
             
             guard let appleIDToken = appleResult.identityToken,
@@ -199,7 +225,7 @@ final class AuthViewModel: ObservableObject {
             let userEmail = user.email ?? appleResult.email ?? ""
             let userName = appleResult.fullName ?? user.displayName ?? userEmail
             
-            // Check if user document exists, create if not
+            // Create user document if first login
             let docSnapshot = try await firebase.usersCollection.document(user.uid).getDocument()
             if !docSnapshot.exists {
                 try await firebase.createUserDocument(
@@ -209,7 +235,16 @@ final class AuthViewModel: ObservableObject {
                 )
             }
             
-            // Generate Secure Enclave key if needed
+            // Biometric MFA (OAuth emails are pre-verified)
+            let biometricPassed = await performBiometricMFA()
+            guard biometricPassed else {
+                try firebase.signOut()
+                isLoading = false
+                return
+            }
+            
+            firebase.isBiometricAuthenticated = true
+            
             if !secureEnclave.hasExistingKey() {
                 await generateAndUploadKey()
             }
@@ -217,49 +252,85 @@ final class AuthViewModel: ObservableObject {
             Task { await PushManager.shared.requestPermission() }
             
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = AuthErrorHandler.message(for: error)
             showError = true
         }
         
         isLoading = false
     }
     
-    /// Perform Apple Sign-In using ASAuthorizationController
-    private func performAppleSignIn(hashedNonce: String) async throws -> AppleSignInResult {
-        return try await withCheckedThrowingContinuation { continuation in
-            let provider = ASAuthorizationAppleIDProvider()
-            let request = provider.createRequest()
-            request.requestedScopes = [.fullName, .email]
-            request.nonce = hashedNonce
-            
-            let delegate = AppleSignInDelegate(continuation: continuation)
-            let controller = ASAuthorizationController(authorizationRequests: [request])
-            controller.delegate = delegate
-            
-            // Hold strong reference to delegate
-            objc_setAssociatedObject(controller, "delegate", delegate, .OBJC_ASSOCIATION_RETAIN)
-            
-            controller.performRequests()
+    // MARK: - Sign Out
+    
+    func signOut() {
+        do {
+            try firebase.signOut()
+        } catch {
+            errorMessage = AuthErrorHandler.message(for: error)
+            showError = true
         }
     }
     
-    /// Generate a random nonce string
-    private func randomNonceString(length: Int = 32) -> String {
-        precondition(length > 0)
-        var randomBytes = [UInt8](repeating: 0, count: length)
-        let errorCode = SecRandomCopyBytes(kSecRandomDefault, randomBytes.count, &randomBytes)
-        if errorCode != errSecSuccess {
-            fatalError("Unable to generate nonce. SecRandomCopyBytes failed.")
+    // MARK: - Resend Verification Email
+    
+    func resendVerificationEmail() async {
+        isLoading = true
+        errorMessage = nil
+        
+        do {
+            // Sign in temporarily just to resend
+            let result = try await firebase.auth.signIn(withEmail: email, password: password)
+            try await result.user.sendEmailVerification()
+            try firebase.signOut()
+            
+            verificationMessage = "Verification email resent to \(email)."
+            showVerificationSent = true
+        } catch {
+            errorMessage = AuthErrorHandler.message(for: error)
+            showError = true
         }
-        let charset: [Character] = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
-        return String(randomBytes.map { charset[Int($0) % charset.count] })
+        
+        isLoading = false
     }
     
-    /// SHA256 hash for Apple Sign-In nonce
-    private func sha256(_ input: String) -> String {
-        let inputData = Data(input.utf8)
-        let hashedData = SHA256.hash(data: inputData)
-        return hashedData.compactMap { String(format: "%02x", $0) }.joined()
+    // MARK: - Biometric MFA
+    
+    /// Perform biometric authentication. Returns true on success, false on failure (error already shown).
+    private func performBiometricMFA() async -> Bool {
+        guard biometricAuth.isBiometricAvailable else {
+            // Biometrics not available — allow through with warning
+            print("⚠️ Biometrics not available on this device, skipping MFA")
+            return true
+        }
+        
+        do {
+            let success = try await biometricAuth.authenticateUser()
+            if success {
+                print("✅ Biometric MFA passed")
+            }
+            return success
+        } catch let error as BiometricAuthError {
+            switch error {
+            case .userCancelled:
+                errorMessage = "Authentication cancelled. You must authenticate to access DigiFence."
+            default:
+                errorMessage = error.localizedDescription
+            }
+            showError = true
+            return false
+        } catch {
+            errorMessage = error.localizedDescription
+            showError = true
+            return false
+        }
+    }
+    
+    // MARK: - Biometric Unlock (for returning users / app relaunch)
+    
+    func unlockWithBiometrics() async {
+        let passed = await performBiometricMFA()
+        if passed {
+            firebase.isBiometricAuthenticated = true
+        }
     }
     
     // MARK: - Key Generation
@@ -271,7 +342,6 @@ final class AuthViewModel: ObservableObject {
             print("🔐 Public key uploaded to Firestore")
         } catch {
             print("⚠️ Secure Enclave key generation failed: \(error.localizedDescription)")
-            // Non-fatal — user can still use the app but will need manual verification
         }
     }
     
@@ -303,6 +373,42 @@ final class AuthViewModel: ObservableObject {
             return false
         }
         return true
+    }
+    
+    // MARK: - Apple Sign-In Helpers
+    
+    private func performAppleSignIn(hashedNonce: String) async throws -> AppleSignInResult {
+        return try await withCheckedThrowingContinuation { continuation in
+            let provider = ASAuthorizationAppleIDProvider()
+            let request = provider.createRequest()
+            request.requestedScopes = [.fullName, .email]
+            request.nonce = hashedNonce
+            
+            let delegate = AppleSignInDelegate(continuation: continuation)
+            let controller = ASAuthorizationController(authorizationRequests: [request])
+            controller.delegate = delegate
+            
+            objc_setAssociatedObject(controller, "delegate", delegate, .OBJC_ASSOCIATION_RETAIN)
+            
+            controller.performRequests()
+        }
+    }
+    
+    private func randomNonceString(length: Int = 32) -> String {
+        precondition(length > 0)
+        var randomBytes = [UInt8](repeating: 0, count: length)
+        let errorCode = SecRandomCopyBytes(kSecRandomDefault, randomBytes.count, &randomBytes)
+        if errorCode != errSecSuccess {
+            fatalError("Unable to generate nonce. SecRandomCopyBytes failed.")
+        }
+        let charset: [Character] = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
+        return String(randomBytes.map { charset[Int($0) % charset.count] })
+    }
+    
+    private func sha256(_ input: String) -> String {
+        let inputData = Data(input.utf8)
+        let hashedData = SHA256.hash(data: inputData)
+        return hashedData.compactMap { String(format: "%02x", $0) }.joined()
     }
 }
 
