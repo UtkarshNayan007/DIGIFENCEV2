@@ -60,7 +60,12 @@ final class FirebaseManager: ObservableObject {
             DispatchQueue.main.async {
                 self.currentUser = user
                 // isLoggedIn requires both Firebase auth AND biometric verification
-                self.isLoggedIn = user != nil && self.isBiometricAuthenticated
+                // Don't reset biometric state on token refreshes — only on actual sign-out
+                if user != nil {
+                    self.isLoggedIn = self.isBiometricAuthenticated
+                } else {
+                    self.isLoggedIn = false
+                }
                 if let user = user {
                     self.listenToUserDoc(uid: user.uid)
                 } else {

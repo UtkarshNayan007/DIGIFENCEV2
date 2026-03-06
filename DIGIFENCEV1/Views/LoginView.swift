@@ -24,199 +24,197 @@ struct LoginView: View {
             )
             .ignoresSafeArea()
             
-            ScrollView {
-                VStack(spacing: 24) {
-                    Spacer().frame(height: 40)
+            VStack(spacing: 24) {
+                Spacer().frame(height: 40)
+                
+                // Logo / Title
+                VStack(spacing: 12) {
+                    Image("AppLogo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 100, height: 100)
+                        .clipShape(RoundedRectangle(cornerRadius: 20))
                     
-                    // Logo / Title
-                    VStack(spacing: 12) {
-                        Image("AppLogo")
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 100, height: 100)
-                            .clipShape(RoundedRectangle(cornerRadius: 20))
-                        
-                        Text("DigiFence")
-                            .font(.system(size: 34, weight: .bold, design: .rounded))
-                            .foregroundColor(.white)
-                        
-                        Text("Secure Event Access")
-                            .font(.system(size: 15))
-                            .foregroundColor(.white.opacity(0.5))
-                    }
-                    .padding(.bottom, 12)
-                    
-                    // Verification success banner
-                    if viewModel.showVerificationSent {
-                        verificationBanner
-                    }
-                    
-                    // Email verification info text
-                    if isSignUp {
-                        infoMessage(
-                            icon: "envelope.badge",
-                            text: "Please verify your email to activate your DigiFence account.",
-                            color: .orange
-                        )
-                    } else {
-                        infoMessage(
-                            icon: "exclamationmark.shield",
-                            text: "If your email is not verified you will not be able to login.",
-                            color: .cyan
-                        )
-                    }
-                    
-                    // Form
-                    VStack(spacing: 16) {
-                        if isSignUp {
-                            CustomTextField(
-                                icon: "person",
-                                placeholder: "Display Name",
-                                text: $viewModel.displayName
-                            )
-                        }
-                        
-                        CustomTextField(
-                            icon: "envelope",
-                            placeholder: "Email",
-                            text: $viewModel.email,
-                            keyboardType: .emailAddress
-                        )
-                        
-                        CustomSecureField(
-                            icon: "lock",
-                            placeholder: "Password",
-                            text: $viewModel.password
-                        )
-                    }
-                    .padding(.horizontal, 24)
-                    
-                    // Sign In / Sign Up Button
-                    Button(action: {
-                        Task {
-                            if isSignUp {
-                                await viewModel.signUp()
-                            } else {
-                                await viewModel.signIn()
-                            }
-                        }
-                    }) {
-                        HStack {
-                            if viewModel.isLoading {
-                                ProgressView()
-                                    .tint(.white)
-                            } else {
-                                Text(isSignUp ? "Create Account" : "Sign In")
-                                    .font(.system(size: 17, weight: .semibold))
-                            }
-                        }
+                    Text("DigiFence")
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
                         .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .background(
-                            LinearGradient(
-                                colors: [.cyan, .blue],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                    }
-                    .disabled(viewModel.isLoading)
-                    .padding(.horizontal, 24)
                     
-                    // Resend verification email button (visible after signup or failed login)
-                    if viewModel.showVerificationSent && !isSignUp {
-                        Button(action: {
-                            Task { await viewModel.resendVerificationEmail() }
-                        }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "envelope.arrow.triangle.branch")
-                                Text("Resend Verification Email")
-                            }
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.cyan)
-                        }
-                    }
-                    
-                    // Divider
-                    HStack {
-                        Rectangle()
-                            .fill(Color.white.opacity(0.2))
-                            .frame(height: 1)
-                        Text("or")
-                            .font(.system(size: 13))
-                            .foregroundColor(.white.opacity(0.4))
-                        Rectangle()
-                            .fill(Color.white.opacity(0.2))
-                            .frame(height: 1)
-                    }
-                    .padding(.horizontal, 24)
-                    
-                    // Google Sign In
-                    Button(action: {
-                        Task { await viewModel.signInWithGoogle() }
-                    }) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "globe")
-                                .font(.system(size: 20))
-                            Text("Continue with Google")
-                                .font(.system(size: 16, weight: .medium))
-                        }
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .background(Color.white.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16)
-                                .stroke(Color.white.opacity(0.2), lineWidth: 1)
-                        )
-                    }
-                    .padding(.horizontal, 24)
-                    
-                    // Apple Sign In
-                    Button(action: {
-                        Task { await viewModel.signInWithApple() }
-                    }) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "apple.logo")
-                                .font(.system(size: 20))
-                            Text("Continue with Apple")
-                                .font(.system(size: 16, weight: .medium))
-                        }
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .background(Color.white.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16)
-                                .stroke(Color.white.opacity(0.2), lineWidth: 1)
-                        )
-                    }
-                    .padding(.horizontal, 24)
-                    
-                    // Toggle Sign Up / Sign In
-                    Button(action: {
-                        withAnimation {
-                            isSignUp.toggle()
-                            viewModel.showVerificationSent = false
-                        }
-                    }) {
-                        HStack(spacing: 4) {
-                            Text(isSignUp ? "Already have an account?" : "Don't have an account?")
-                                .foregroundColor(.white.opacity(0.5))
-                            Text(isSignUp ? "Sign In" : "Sign Up")
-                                .foregroundColor(.cyan)
-                                .fontWeight(.semibold)
-                        }
-                        .font(.system(size: 14))
-                    }
-                    .padding(.top, 8)
-                    
-                    Spacer()
+                    Text("Secure Event Access")
+                        .font(.system(size: 15))
+                        .foregroundColor(.white.opacity(0.5))
                 }
+                .padding(.bottom, 12)
+                
+                // Verification success banner
+                if viewModel.showVerificationSent {
+                    verificationBanner
+                }
+                
+                // Email verification info text
+                if isSignUp {
+                    infoMessage(
+                        icon: "envelope.badge",
+                        text: "Please verify your email to activate your DigiFence account.",
+                        color: .orange
+                    )
+                } else {
+                    infoMessage(
+                        icon: "exclamationmark.shield",
+                        text: "If your email is not verified you will not be able to login.",
+                        color: .cyan
+                    )
+                }
+                
+                // Form
+                VStack(spacing: 16) {
+                    if isSignUp {
+                        CustomTextField(
+                            icon: "person",
+                            placeholder: "Display Name",
+                            text: $viewModel.displayName
+                        )
+                    }
+                    
+                    CustomTextField(
+                        icon: "envelope",
+                        placeholder: "Email",
+                        text: $viewModel.email,
+                        keyboardType: .emailAddress
+                    )
+                    
+                    CustomSecureField(
+                        icon: "lock",
+                        placeholder: "Password",
+                        text: $viewModel.password
+                    )
+                }
+                .padding(.horizontal, 24)
+                
+                // Sign In / Sign Up Button
+                Button(action: {
+                    Task {
+                        if isSignUp {
+                            await viewModel.signUp()
+                        } else {
+                            await viewModel.signIn()
+                        }
+                    }
+                }) {
+                    HStack {
+                        if viewModel.isLoading {
+                            ProgressView()
+                                .tint(.white)
+                        } else {
+                            Text(isSignUp ? "Create Account" : "Sign In")
+                                .font(.system(size: 17, weight: .semibold))
+                        }
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 56)
+                    .background(
+                        LinearGradient(
+                            colors: [.cyan, .blue],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+                .disabled(viewModel.isLoading)
+                .padding(.horizontal, 24)
+                
+                // Resend verification email button
+                if viewModel.showVerificationSent && !isSignUp {
+                    Button(action: {
+                        Task { await viewModel.resendVerificationEmail() }
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "envelope.arrow.triangle.branch")
+                            Text("Resend Verification Email")
+                        }
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.cyan)
+                    }
+                }
+                
+                // Divider
+                HStack {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.2))
+                        .frame(height: 1)
+                    Text("or")
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.4))
+                    Rectangle()
+                        .fill(Color.white.opacity(0.2))
+                        .frame(height: 1)
+                }
+                .padding(.horizontal, 24)
+                
+                // Google Sign In
+                Button(action: {
+                    Task { await viewModel.signInWithGoogle() }
+                }) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "globe")
+                            .font(.system(size: 20))
+                        Text("Continue with Google")
+                            .font(.system(size: 16, weight: .medium))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 56)
+                    .background(Color.white.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                    )
+                }
+                .padding(.horizontal, 24)
+                
+                // Apple Sign In
+                Button(action: {
+                    Task { await viewModel.signInWithApple() }
+                }) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "apple.logo")
+                            .font(.system(size: 20))
+                        Text("Continue with Apple")
+                            .font(.system(size: 16, weight: .medium))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 56)
+                    .background(Color.white.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                    )
+                }
+                .padding(.horizontal, 24)
+                
+                // Toggle Sign Up / Sign In
+                Button(action: {
+                    withAnimation {
+                        isSignUp.toggle()
+                        viewModel.showVerificationSent = false
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        Text(isSignUp ? "Already have an account?" : "Don't have an account?")
+                            .foregroundColor(.white.opacity(0.5))
+                        Text(isSignUp ? "Sign In" : "Sign Up")
+                            .foregroundColor(.cyan)
+                            .fontWeight(.semibold)
+                    }
+                    .font(.system(size: 14))
+                }
+                .padding(.top, 8)
+                
+                Spacer()
             }
         }
         .alert("Error", isPresented: $viewModel.showError) {

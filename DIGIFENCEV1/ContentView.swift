@@ -66,6 +66,7 @@ struct BiometricLockView: View {
     @ObservedObject private var firebase = FirebaseManager.shared
     @State private var isAuthenticating = false
     @State private var showSignOutConfirm = false
+    @State private var hasAttemptedAutoUnlock = false
     
     private let biometric = BiometricAuthManager.shared
     
@@ -142,7 +143,9 @@ struct BiometricLockView: View {
             }
         }
         .onAppear {
-            // Auto-trigger biometric on appear
+            // Auto-trigger biometric once on appear (not on re-renders)
+            guard !hasAttemptedAutoUnlock else { return }
+            hasAttemptedAutoUnlock = true
             Task {
                 isAuthenticating = true
                 await authVM.unlockWithBiometrics()
