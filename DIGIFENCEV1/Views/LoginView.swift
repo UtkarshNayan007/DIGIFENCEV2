@@ -30,21 +30,11 @@ struct LoginView: View {
                     
                     // Logo / Title
                     VStack(spacing: 12) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.cyan.opacity(0.15))
-                                .frame(width: 100, height: 100)
-                            
-                            Image(systemName: "shield.checkered")
-                                .font(.system(size: 44, weight: .light))
-                                .foregroundStyle(
-                                    LinearGradient(
-                                        colors: [.cyan, .blue],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                        }
+                        Image("AppLogo")
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 100, height: 100)
+                            .clipShape(RoundedRectangle(cornerRadius: 20))
                         
                         Text("DigiFence")
                             .font(.system(size: 34, weight: .bold, design: .rounded))

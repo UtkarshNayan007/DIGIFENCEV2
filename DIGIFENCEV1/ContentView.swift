@@ -20,15 +20,11 @@ struct ContentView: View {
                         .ignoresSafeArea()
                     
                     VStack(spacing: 20) {
-                        Image(systemName: "shield.checkered")
-                            .font(.system(size: 60, weight: .light))
-                            .foregroundStyle(
-                                LinearGradient(
-                                    colors: [.cyan, .blue],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
+                        Image("AppLogo")
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 100, height: 100)
+                            .clipShape(RoundedRectangle(cornerRadius: 20))
                         
                         Text("DigiFence")
                             .font(.system(size: 28, weight: .bold, design: .rounded))

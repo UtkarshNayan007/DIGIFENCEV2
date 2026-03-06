@@ -27,7 +27,7 @@ final class OnboardingViewModel: ObservableObject {
             description: "Your pass is bound to your biometrics. Face ID or Touch ID ensures only you can use your ticket."
         ),
         OnboardingPage(
-            icon: "shield.checkered",
+            icon: "AppLogo",
             title: "Tamper-Proof",
             description: "Cryptographic signatures verified server-side. No fake passes, no GPS spoofing, no sharing."
         ),

@@ -47,15 +47,23 @@ struct OnboardingView: View {
                                     )
                                     .frame(width: 200, height: 200)
                                 
-                                Image(systemName: page.icon)
-                                    .font(.system(size: 70, weight: .light))
-                                    .foregroundStyle(
-                                        LinearGradient(
-                                            colors: [.cyan, .blue],
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
+                                if page.icon == "AppLogo" {
+                                    Image("AppLogo")
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fit)
+                                        .frame(width: 100, height: 100)
+                                        .clipShape(RoundedRectangle(cornerRadius: 20))
+                                } else {
+                                    Image(systemName: page.icon)
+                                        .font(.system(size: 70, weight: .light))
+                                        .foregroundStyle(
+                                            LinearGradient(
+                                                colors: [.cyan, .blue],
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            )
                                         )
-                                    )
+                                }
                             }
                             
                             VStack(spacing: 16) {
