@@ -1,0 +1,199 @@
+//
+//  QRScannerViewModel.swift
+//  DIGIFENCEV1
+//
+//  Handles QR code scanning and pass verification with Firebase.
+//
+
+import Foundation
+import Combine
+@preconcurrency import AVFoundation
+import FirebaseFirestore
+
+struct ScanResult {
+    let isValid: Bool
+    let message: String
+    let eventTitle: String?
+    let entryCode: String?
+    let userName: String?
+}
+
+@MainActor
+final class QRScannerViewModel: NSObject, ObservableObject {
+    @Published var isScanning = false
+    @Published var scanResult: ScanResult?
+    @Published var errorMessage: String?
+    
+    private let _captureSession = AVCaptureSession()
+    var captureSession: AVCaptureSession { _captureSession }
+    
+    private var metadataOutput: AVCaptureMetadataOutput?
+    private let firebase = FirebaseManager.shared
+    private var isProcessing = false
+    
+    override init() {
+        super.init()
+        setupCamera()
+    }
+    
+    // MARK: - Camera Setup
+    
+    private func setupCamera() {
+        guard let device = AVCaptureDevice.default(for: .video),
+              let input = try? AVCaptureDeviceInput(device: device) else {
+            return
+        }
+        
+        if _captureSession.canAddInput(input) {
+            _captureSession.addInput(input)
+        }
+        
+        let output = AVCaptureMetadataOutput()
+        if _captureSession.canAddOutput(output) {
+            _captureSession.addOutput(output)
+            output.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
+            output.metadataObjectTypes = [.qr]
+            metadataOutput = output
+        }
+    }
+
+    // MARK: - Scanning Control
+    
+    func startScanning() {
+        let session = _captureSession
+        guard !session.isRunning else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            session.startRunning()
+        }
+        isScanning = true
+    }
+    
+    func stopScanning() {
+        let session = _captureSession
+        guard session.isRunning else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            session.stopRunning()
+        }
+        isScanning = false
+    }
+    
+    func resetScan() {
+        scanResult = nil
+        isProcessing = false
+        startScanning()
+    }
+    
+    // MARK: - Code Verification
+    
+    func verifyCode(_ code: String) async {
+        guard !isProcessing else { return }
+        isProcessing = true
+        stopScanning()
+        
+        do {
+            let result = try await verifyPassToken(code)
+            if result.isValid {
+                HapticManager.shared.success()
+            } else {
+                HapticManager.shared.error()
+            }
+            scanResult = result
+        } catch {
+            HapticManager.shared.error()
+            scanResult = ScanResult(
+                isValid: false,
+                message: error.localizedDescription,
+                eventTitle: nil,
+                entryCode: nil,
+                userName: nil
+            )
+        }
+        
+        isProcessing = false
+    }
+
+    private func verifyPassToken(_ token: String) async throws -> ScanResult {
+        // Query tickets collection for matching qrToken
+        let snapshot = try await firebase.ticketsCollection
+            .whereField("qrToken", isEqualTo: token)
+            .limit(to: 1)
+            .getDocuments()
+        
+        guard let doc = snapshot.documents.first else {
+            return ScanResult(
+                isValid: false,
+                message: "Pass not found. Invalid QR code.",
+                eventTitle: nil,
+                entryCode: nil,
+                userName: nil
+            )
+        }
+        
+        let ticket = try doc.data(as: Ticket.self)
+        
+        // Check if already used (scanned)
+        if ticket.qrScanned == true {
+            return ScanResult(
+                isValid: false,
+                message: "This pass has already been used.",
+                eventTitle: nil,
+                entryCode: ticket.entryCode,
+                userName: nil
+            )
+        }
+
+        // Check ticket status
+        guard ticket.status == .active else {
+            return ScanResult(
+                isValid: false,
+                message: "Pass is not active. Status: \(ticket.statusDisplayText)",
+                eventTitle: nil,
+                entryCode: nil,
+                userName: nil
+            )
+        }
+        
+        // Fetch event details
+        let eventDoc = try await firebase.eventsCollection.document(ticket.eventId).getDocument()
+        let event = try? eventDoc.data(as: Event.self)
+        
+        // Fetch user details
+        let userDoc = try await firebase.usersCollection.document(ticket.ownerId).getDocument()
+        let user = try? userDoc.data(as: AppUser.self)
+        
+        // Mark as scanned with check-in time
+        try await firebase.ticketsCollection.document(doc.documentID).updateData([
+            "qrScanned": true,
+            "scannedAt": FieldValue.serverTimestamp(),
+            "checkInTime": FieldValue.serverTimestamp()
+        ])
+        
+        return ScanResult(
+            isValid: true,
+            message: "Check-in successful!",
+            eventTitle: event?.title,
+            entryCode: ticket.entryCode,
+            userName: user?.displayName
+        )
+    }
+}
+
+// MARK: - AVCaptureMetadataOutputObjectsDelegate
+
+extension QRScannerViewModel: AVCaptureMetadataOutputObjectsDelegate {
+    nonisolated func metadataOutput(
+        _ output: AVCaptureMetadataOutput,
+        didOutput metadataObjects: [AVMetadataObject],
+        from connection: AVCaptureConnection
+    ) {
+        guard let metadataObject = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
+              metadataObject.type == .qr,
+              let code = metadataObject.stringValue else {
+            return
+        }
+        
+        Task { @MainActor in
+            await verifyCode(code)
+        }
+    }
+}

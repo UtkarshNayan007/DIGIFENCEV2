@@ -107,8 +107,8 @@ final class FirebaseManager: ObservableObject {
     
     // MARK: - User Document CRUD
     
-    func createUserDocument(uid: String, email: String, displayName: String) async throws {
-        let userData: [String: Any] = [
+    func createUserDocument(uid: String, email: String, displayName: String, phoneNumber: String? = nil) async throws {
+        var userData: [String: Any] = [
             "email": email,
             "displayName": displayName,
             "role": "user",
@@ -117,7 +117,17 @@ final class FirebaseManager: ObservableObject {
             "fcmToken": NSNull(),
             "createdAt": FieldValue.serverTimestamp()
         ]
+        if let phone = phoneNumber, !phone.isEmpty {
+            userData["phoneNumber"] = phone
+        }
         try await usersCollection.document(uid).setData(userData)
+    }
+    
+    func updatePhoneNumber(_ phoneNumber: String) async throws {
+        guard let uid = currentUser?.uid else { throw FirebaseError.notAuthenticated }
+        try await usersCollection.document(uid).updateData([
+            "phoneNumber": phoneNumber
+        ])
     }
     
     func updatePublicKey(_ publicKey: String) async throws {

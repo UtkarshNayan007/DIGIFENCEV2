@@ -12,6 +12,7 @@ struct AppUser: Codable, Identifiable {
     @DocumentID var id: String?
     let email: String
     var displayName: String
+    var phoneNumber: String?
     var role: UserRole
     var publicKey: String?
     var deviceId: String?
@@ -27,7 +28,7 @@ struct AppUser: Codable, Identifiable {
     }
     
     enum CodingKeys: String, CodingKey {
-        case id, email, displayName, role, publicKey, deviceId, fcmToken, createdAt
+        case id, email, displayName, phoneNumber, role, publicKey, deviceId, fcmToken, createdAt
     }
     
     init(from decoder: Decoder) throws {
@@ -35,6 +36,7 @@ struct AppUser: Codable, Identifiable {
         _id = try container.decodeIfPresent(DocumentID<String>.self, forKey: .id) ?? DocumentID(wrappedValue: nil)
         email = try container.decode(String.self, forKey: .email)
         displayName = try container.decodeIfPresent(String.self, forKey: .displayName) ?? ""
+        phoneNumber = try container.decodeIfPresent(String.self, forKey: .phoneNumber)
         role = try container.decodeIfPresent(UserRole.self, forKey: .role) ?? .user
         publicKey = try container.decodeIfPresent(String.self, forKey: .publicKey)
         deviceId = try container.decodeIfPresent(String.self, forKey: .deviceId)
@@ -42,9 +44,10 @@ struct AppUser: Codable, Identifiable {
         _createdAt = try container.decodeIfPresent(ServerTimestamp<Timestamp>.self, forKey: .createdAt) ?? ServerTimestamp(wrappedValue: nil)
     }
     
-    init(email: String, displayName: String, role: UserRole = .user, publicKey: String? = nil) {
+    init(email: String, displayName: String, phoneNumber: String? = nil, role: UserRole = .user, publicKey: String? = nil) {
         self.email = email
         self.displayName = displayName
+        self.phoneNumber = phoneNumber
         self.role = role
         self.publicKey = publicKey
     }

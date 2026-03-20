@@ -2,7 +2,7 @@
 //  OnboardingView.swift
 //  DIGIFENCEV1
 //
-//  Multi-page onboarding with SF Symbol illustrations.
+//  Premium multi-page onboarding with fluid animations.
 //
 
 import SwiftUI
@@ -10,133 +10,192 @@ import SwiftUI
 struct OnboardingView: View {
     @StateObject private var viewModel = OnboardingViewModel()
     @Binding var hasCompletedOnboarding: Bool
+    @State private var dragOffset: CGFloat = 0
     
     var body: some View {
         ZStack {
-            // Background gradient
-            LinearGradient(
-                colors: [
-                    Color(red: 0.05, green: 0.05, blue: 0.15),
-                    Color(red: 0.1, green: 0.05, blue: 0.2)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            // Background
+            backgroundView
             
             VStack(spacing: 0) {
-                // Page content
+                // Pages
                 TabView(selection: $viewModel.currentPage) {
                     ForEach(Array(viewModel.pages.enumerated()), id: \.offset) { index, page in
-                        VStack(spacing: 30) {
-                            Spacer()
-                            
-                            // Icon with animated glow
-                            ZStack {
-                                Circle()
-                                    .fill(
-                                        RadialGradient(
-                                            colors: [
-                                                Color.cyan.opacity(0.3),
-                                                Color.clear
-                                            ],
-                                            center: .center,
-                                            startRadius: 30,
-                                            endRadius: 100
-                                        )
-                                    )
-                                    .frame(width: 200, height: 200)
-                                
-                                if page.icon == "AppLogo" {
-                                    Image("AppLogo")
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fit)
-                                        .frame(width: 100, height: 100)
-                                        .clipShape(RoundedRectangle(cornerRadius: 20))
-                                } else {
-                                    Image(systemName: page.icon)
-                                        .font(.system(size: 70, weight: .light))
-                                        .foregroundStyle(
-                                            LinearGradient(
-                                                colors: [.cyan, .blue],
-                                                startPoint: .topLeading,
-                                                endPoint: .bottomTrailing
-                                            )
-                                        )
-                                }
-                            }
-                            
-                            VStack(spacing: 16) {
-                                Text(page.title)
-                                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                                    .foregroundColor(.white)
-                                    .multilineTextAlignment(.center)
-                                
-                                Text(page.description)
-                                    .font(.system(size: 16, weight: .regular))
-                                    .foregroundColor(.white.opacity(0.7))
-                                    .multilineTextAlignment(.center)
-                                    .padding(.horizontal, 40)
-                            }
-                            
-                            Spacer()
-                            Spacer()
-                        }
-                        .tag(index)
+                        OnboardingPageView(page: page)
+                            .tag(index)
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
-                
-                // Page indicators
-                HStack(spacing: 8) {
-                    ForEach(0..<viewModel.pages.count, id: \.self) { index in
-                        Capsule()
-                            .fill(index == viewModel.currentPage ? Color.cyan : Color.white.opacity(0.3))
-                            .frame(width: index == viewModel.currentPage ? 24 : 8, height: 8)
-                            .animation(.easeInOut(duration: 0.3), value: viewModel.currentPage)
-                    }
+                .onChange(of: viewModel.currentPage) {
+                    HapticManager.shared.selection()
                 }
-                .padding(.bottom, 30)
                 
-                // Button
-                Button(action: {
-                    withAnimation {
-                        if viewModel.isLastPage {
-                            viewModel.completeOnboarding()
-                            hasCompletedOnboarding = true
-                        } else {
-                            viewModel.nextPage()
-                        }
-                    }
-                }) {
-                    Text(viewModel.isLastPage ? "Get Started" : "Next")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .background(
-                            LinearGradient(
-                                colors: [.cyan, .blue],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                // Bottom Controls
+                bottomControls
+            }
+        }
+    }
+    
+    // MARK: - Background
+    
+    private var backgroundView: some View {
+        ZStack {
+            Color(.systemBackground)
+            
+            // Animated gradient orbs
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [Color.cyan.opacity(0.2), Color.clear],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: 250
+                    )
+                )
+                .frame(width: 500, height: 500)
+                .offset(x: -50, y: -300)
+                .blur(radius: 80)
+            
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [Color.blue.opacity(0.15), Color.clear],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: 200
+                    )
+                )
+                .frame(width: 400, height: 400)
+                .offset(x: 100, y: 400)
+                .blur(radius: 60)
+        }
+        .ignoresSafeArea()
+    }
+
+    // MARK: - Bottom Controls
+    
+    private var bottomControls: some View {
+        VStack(spacing: 20) {
+            // Page Indicators
+            HStack(spacing: 10) {
+                ForEach(0..<viewModel.pages.count, id: \.self) { index in
+                    Capsule()
+                        .fill(index == viewModel.currentPage ? Color.dfAccent : Color(.systemGray4))
+                        .frame(width: index == viewModel.currentPage ? 28 : 8, height: 8)
+                        .animation(.spring(response: 0.35, dampingFraction: 0.7), value: viewModel.currentPage)
                 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 16)
-                
-                // Skip button
-                if !viewModel.isLastPage {
-                    Button("Skip") {
+            }
+            .padding(.bottom, 8)
+            
+            // Continue Button
+            DFPrimaryButton(
+                title: viewModel.isLastPage ? "Get Started" : "Continue",
+                icon: viewModel.isLastPage ? "arrow.right.circle.fill" : nil
+            ) {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                    if viewModel.isLastPage {
                         viewModel.completeOnboarding()
                         hasCompletedOnboarding = true
+                    } else {
+                        viewModel.nextPage()
                     }
-                    .font(.system(size: 15))
-                    .foregroundColor(.white.opacity(0.5))
                 }
+            }
+            .padding(.horizontal, 24)
+            
+            // Skip Button
+            if !viewModel.isLastPage {
+                Button("Skip") {
+                    HapticManager.shared.light()
+                    viewModel.completeOnboarding()
+                    hasCompletedOnboarding = true
+                }
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(.secondary)
+            }
+            
+            Spacer().frame(height: 24)
+        }
+    }
+}
+
+// MARK: - Onboarding Page
+
+struct OnboardingPageView: View {
+    let page: OnboardingPage
+    @State private var iconAppeared = false
+    @State private var textAppeared = false
+    
+    var body: some View {
+        VStack(spacing: 40) {
+            Spacer()
+            
+            // Icon Container
+            ZStack {
+                // Outer glow
+                Circle()
+                    .fill(Color.dfAccent.opacity(0.06))
+                    .frame(width: 220, height: 220)
+                    .scaleEffect(iconAppeared ? 1.0 : 0.5)
                 
-                Spacer().frame(height: 20)
+                // Inner circle
+                Circle()
+                    .fill(Color.dfAccent.opacity(0.1))
+                    .frame(width: 160, height: 160)
+                    .scaleEffect(iconAppeared ? 1.0 : 0.6)
+                
+                // Icon or Logo
+                if page.icon == "AppLogo" {
+                    Image("AppLogo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 90, height: 90)
+                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .shadow(color: Color.cyan.opacity(0.3), radius: 16, y: 8)
+                } else {
+                    Image(systemName: page.icon)
+                        .font(.system(size: 70, weight: .light))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.cyan, .blue],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                }
+            }
+            .scaleEffect(iconAppeared ? 1.0 : 0.3)
+            .opacity(iconAppeared ? 1.0 : 0)
+            
+            // Text Content
+            VStack(spacing: 16) {
+                Text(page.title)
+                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+                    .multilineTextAlignment(.center)
+                
+                Text(page.description)
+                    .font(.system(size: 17))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(4)
+                    .padding(.horizontal, 32)
+            }
+            .opacity(textAppeared ? 1.0 : 0)
+            .offset(y: textAppeared ? 0 : 20)
+            
+            Spacer()
+            Spacer()
+        }
+        .onAppear {
+            iconAppeared = false
+            textAppeared = false
+            
+            withAnimation(.spring(response: 0.7, dampingFraction: 0.65).delay(0.1)) {
+                iconAppeared = true
+            }
+            withAnimation(.easeOut(duration: 0.5).delay(0.3)) {
+                textAppeared = true
             }
         }
     }

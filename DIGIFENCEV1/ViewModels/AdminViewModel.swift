@@ -159,6 +159,11 @@ final class AdminViewModel: ObservableObject {
         polygonPoints.removeAll()
     }
     
+    func updatePolygonPoint(at index: Int, to coordinate: CLLocationCoordinate2D) {
+        guard index >= 0 && index < polygonPoints.count else { return }
+        polygonPoints[index] = coordinate
+    }
+    
     var isPolygonValid: Bool {
         polygonPoints.count >= 3 && !isPolygonSelfIntersecting
     }
@@ -219,9 +224,13 @@ final class AdminViewModel: ObservableObject {
                 ["lat": coord.latitude, "lng": coord.longitude]
             }
             
+            // Generate unique event code
+            let eventCode = generateEventCode()
+            
             var eventData: [String: Any] = [
                 "title": title,
                 "description": description,
+                "eventCode": eventCode,
                 "polygonCoordinates": polygonData,
                 "organizerId": uid,
                 "capacity": capacity,
@@ -250,7 +259,7 @@ final class AdminViewModel: ObservableObject {
                 try await docRef.updateData(["thumbnailURL": thumbnailURL])
             }
             
-            successMessage = "Event '\(title)' created successfully!"
+            successMessage = "Event '\(title)' created!\nEvent Code: \(eventCode)"
             showSuccess = true
             resetForm()
             
@@ -260,6 +269,12 @@ final class AdminViewModel: ObservableObject {
         }
         
         isLoading = false
+    }
+    
+    /// Generate a unique 6-character event code
+    private func generateEventCode() -> String {
+        let characters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        return String((0..<6).map { _ in characters.randomElement()! })
     }
     
     // MARK: - Listen to My Events
