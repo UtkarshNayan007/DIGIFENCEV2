@@ -205,24 +205,26 @@ private struct ScanningLine: View {
 struct CameraPreviewView: UIViewRepresentable {
     let session: AVCaptureSession
     
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView(frame: .zero)
+    func makeUIView(context: Context) -> PreviewUIView {
+        let view = PreviewUIView()
         let previewLayer = AVCaptureVideoPreviewLayer(session: session)
         previewLayer.videoGravity = .resizeAspectFill
+        view.previewLayer = previewLayer
         view.layer.addSublayer(previewLayer)
-        context.coordinator.previewLayer = previewLayer
         return view
     }
     
-    func updateUIView(_ uiView: UIView, context: Context) {
-        context.coordinator.previewLayer?.frame = uiView.bounds
+    func updateUIView(_ uiView: PreviewUIView, context: Context) {
+        // Frame is handled by layoutSubviews in PreviewUIView
     }
     
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-    
-    class Coordinator {
+    /// Custom UIView that keeps the preview layer sized to its bounds
+    class PreviewUIView: UIView {
         var previewLayer: AVCaptureVideoPreviewLayer?
+        
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            previewLayer?.frame = bounds
+        }
     }
 }

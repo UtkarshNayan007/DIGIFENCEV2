@@ -90,8 +90,17 @@ final class QRScannerViewModel: NSObject, ObservableObject {
         isProcessing = true
         stopScanning()
         
+        let trimmedCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        
         do {
-            let result = try await verifyPassToken(code)
+            // Short codes (≤8 chars) are entry codes; longer strings are QR tokens
+            let result: ScanResult
+            if trimmedCode.count <= 8 {
+                result = try await verifyEntryCode(trimmedCode.uppercased())
+            } else {
+                result = try await verifyPassToken(trimmedCode)
+            }
+            
             if result.isValid {
                 HapticManager.shared.success()
             } else {
@@ -112,6 +121,72 @@ final class QRScannerViewModel: NSObject, ObservableObject {
         isProcessing = false
     }
 
+    /// Verify a ticket by its short entry code (admin manual entry)
+    private func verifyEntryCode(_ code: String) async throws -> ScanResult {
+        let snapshot = try await firebase.ticketsCollection
+            .whereField("entryCode", isEqualTo: code)
+            .limit(to: 1)
+            .getDocuments()
+        
+        guard let doc = snapshot.documents.first else {
+            return ScanResult(
+                isValid: false,
+                message: "No pass found with entry code \"\(code)\".",
+                eventTitle: nil,
+                entryCode: nil,
+                userName: nil
+            )
+        }
+        
+        let ticket = try doc.data(as: Ticket.self)
+        
+        // Check if already used (scanned)
+        if ticket.qrScanned == true {
+            return ScanResult(
+                isValid: false,
+                message: "This pass has already been checked in.",
+                eventTitle: nil,
+                entryCode: ticket.entryCode,
+                userName: nil
+            )
+        }
+        
+        // Check ticket status
+        guard ticket.status == .active else {
+            return ScanResult(
+                isValid: false,
+                message: "Pass is not active. Status: \(ticket.statusDisplayText)",
+                eventTitle: nil,
+                entryCode: ticket.entryCode,
+                userName: nil
+            )
+        }
+        
+        // Fetch event details
+        let eventDoc = try await firebase.eventsCollection.document(ticket.eventId).getDocument()
+        let event = try? eventDoc.data(as: Event.self)
+        
+        // Fetch user details
+        let userDoc = try await firebase.usersCollection.document(ticket.ownerId).getDocument()
+        let user = try? userDoc.data(as: AppUser.self)
+        
+        // Mark as scanned with check-in time
+        try await firebase.ticketsCollection.document(doc.documentID).updateData([
+            "qrScanned": true,
+            "scannedAt": FieldValue.serverTimestamp(),
+            "checkInTime": FieldValue.serverTimestamp()
+        ])
+        
+        return ScanResult(
+            isValid: true,
+            message: "Check-in successful!",
+            eventTitle: event?.title,
+            entryCode: ticket.entryCode,
+            userName: user?.displayName
+        )
+    }
+
+    /// Verify a ticket by its QR token (scanner)
     private func verifyPassToken(_ token: String) async throws -> ScanResult {
         // Query tickets collection for matching qrToken
         let snapshot = try await firebase.ticketsCollection

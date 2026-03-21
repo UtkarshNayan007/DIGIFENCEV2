@@ -60,8 +60,11 @@ service cloud.firestore {
         request.resource.data.biometricVerified == false &&
         request.resource.data.insideFence == false &&
         request.resource.data.keys().hasAll(['eventId', 'ownerId', 'status', 'biometricVerified', 'insideFence', 'createdAt']);
-      // Client cannot update tickets — server-only via Admin SDK
-      allow update: if false;
+      // Admins can update check-in fields (qrScanned, scannedAt, checkInTime)
+      // Regular users cannot update tickets — activation is server-only via Admin SDK
+      allow update: if isAdmin() &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['qrScanned', 'scannedAt', 'checkInTime']);
       allow delete: if false;
     }
 

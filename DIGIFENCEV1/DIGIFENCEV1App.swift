@@ -7,6 +7,7 @@
 
 import SwiftUI
 import FirebaseCore
+import FirebaseAppCheck
 
 class AppDelegate: NSObject, UIApplicationDelegate {
     
@@ -14,11 +15,13 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        // NOTE: App Check is intentionally NOT configured here.
-        // To use App Check in production, you must:
-        // 1. Set up AppCheckDebugProviderFactory (for simulators) or DeviceCheck/AppAttest (for devices)
-        // 2. Register debug tokens in Firebase Console → App Check → Apps
-        // 3. Enforce App Check for Firestore in Firebase Console → App Check → APIs
+        // Configure App Check BEFORE FirebaseApp.configure()
+        // Using Debug Provider for development (no Apple Developer Program required)
+        // On first launch, check Xcode console for a line like:
+        //   [Firebase/AppCheck] App Check debug token: XXXXXXXX-XXXX-...
+        // Register that token in Firebase Console → App Check → Apps → Manage debug tokens
+        let providerFactory = AppCheckDebugProviderFactory()
+        AppCheck.setAppCheckProviderFactory(providerFactory)
         
         // Configure Firebase
         FirebaseApp.configure()
