@@ -2,7 +2,7 @@
 //  DesignSystem.swift
 //  DIGIFENCEV1
 //
-//  Premium Apple-quality design system with reusable components.
+//  Unified design system — single source of truth for all UI tokens and reusable components.
 //
 
 import SwiftUI
@@ -44,31 +44,29 @@ extension Color {
 struct DFGradients {
     static let accent = LinearGradient(
         colors: [.dfAccentGradientStart, .dfAccentGradientEnd],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
+        startPoint: .topLeading, endPoint: .bottomTrailing
     )
-    
     static let accentHorizontal = LinearGradient(
-        colors: [.cyan, .blue],
-        startPoint: .leading,
-        endPoint: .trailing
+        colors: [.cyan, .blue], startPoint: .leading, endPoint: .trailing
     )
-    
     static let success = LinearGradient(
-        colors: [.green, .mint],
-        startPoint: .leading,
-        endPoint: .trailing
+        colors: [.green, .mint], startPoint: .leading, endPoint: .trailing
     )
-    
     static let subtle = LinearGradient(
         colors: [Color(.systemBackground), Color(.secondarySystemBackground)],
-        startPoint: .top,
-        endPoint: .bottom
+        startPoint: .top, endPoint: .bottom
     )
 }
 
+// MARK: - Button Styles
 
-// MARK: - Card Press Button Style
+struct DFScaleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .animation(.spring(response: 0.2, dampingFraction: 0.7), value: configuration.isPressed)
+    }
+}
 
 struct DFCardButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
@@ -76,17 +74,6 @@ struct DFCardButtonStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
             .opacity(configuration.isPressed ? 0.92 : 1.0)
             .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
-            .onChange(of: configuration.isPressed) { _, newValue in
-                if newValue { HapticManager.shared.light() }
-            }
-    }
-}
-
-struct DFScaleButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
-            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: configuration.isPressed)
     }
 }
 
@@ -98,7 +85,7 @@ struct DFPrimaryButton: View {
     var isLoading: Bool = false
     var isDisabled: Bool = false
     var colors: [Color] = [.cyan, .blue]
-    var height: CGFloat = 54
+    var height: CGFloat = 52
     let action: () -> Void
 
     var body: some View {
@@ -108,37 +95,32 @@ struct DFPrimaryButton: View {
         }) {
             HStack(spacing: 10) {
                 if isLoading {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(.white)
+                    ProgressView().controlSize(.small).tint(.white)
                 } else {
                     if let icon {
                         Image(systemName: icon)
-                            .font(.system(size: 17, weight: .semibold))
+                            .font(.system(size: 16, weight: .semibold))
                     }
                     Text(title)
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.system(size: 16, weight: .semibold))
                 }
             }
             .foregroundColor(.white)
             .frame(maxWidth: .infinity)
             .frame(height: height)
             .background(
-                Group {
-                    if isDisabled {
-                        Color(.systemGray3)
-                    } else {
-                        LinearGradient(colors: colors, startPoint: .leading, endPoint: .trailing)
-                    }
-                }
+                isDisabled
+                    ? AnyShapeStyle(Color(.systemGray3))
+                    : AnyShapeStyle(LinearGradient(colors: colors, startPoint: .leading, endPoint: .trailing))
             )
             .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.lg, style: .continuous))
-            .shadow(color: isDisabled ? .clear : colors.first!.opacity(0.3), radius: 12, y: 6)
+            .shadow(color: isDisabled ? .clear : colors.first!.opacity(0.25), radius: 10, y: 5)
         }
         .disabled(isLoading || isDisabled)
         .buttonStyle(DFScaleButtonStyle())
     }
 }
+
 
 // MARK: - Secondary Button
 
@@ -147,8 +129,7 @@ struct DFSecondaryButton: View {
     var icon: String? = nil
     var isLoading: Bool = false
     var foregroundColor: Color = .primary
-    var backgroundColor: Color = Color(.secondarySystemGroupedBackground)
-    var height: CGFloat = 52
+    var height: CGFloat = 48
     let action: () -> Void
 
     var body: some View {
@@ -161,21 +142,19 @@ struct DFSecondaryButton: View {
                     ProgressView().controlSize(.small)
                 } else {
                     if let icon {
-                        Image(systemName: icon)
-                            .font(.system(size: 17, weight: .medium))
+                        Image(systemName: icon).font(.system(size: 16, weight: .medium))
                     }
-                    Text(title)
-                        .font(.system(size: 16, weight: .medium))
+                    Text(title).font(.system(size: 15, weight: .medium))
                 }
             }
             .foregroundColor(foregroundColor)
             .frame(maxWidth: .infinity)
             .frame(height: height)
-            .background(backgroundColor)
+            .background(Color(.secondarySystemGroupedBackground))
             .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.lg, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: DFCornerRadius.lg, style: .continuous)
-                    .stroke(Color(.separator).opacity(0.5), lineWidth: 0.5)
+                    .stroke(Color(.separator).opacity(0.4), lineWidth: 0.5)
             )
         }
         .disabled(isLoading)
@@ -183,35 +162,154 @@ struct DFSecondaryButton: View {
     }
 }
 
+// MARK: - Destructive Button
 
-// MARK: - Card View
-
-struct DFCard<Content: View>: View {
-    var padding: CGFloat = DFSpacing.lg
-    var cornerRadius: CGFloat = DFCornerRadius.xl
-    var shadowOpacity: Double = 0.06
-    var shadowRadius: CGFloat = 12
-    @ViewBuilder let content: () -> Content
+struct DFDestructiveButton: View {
+    let title: String
+    var icon: String? = nil
+    var isLoading: Bool = false
+    let action: () -> Void
 
     var body: some View {
-        content()
-            .padding(padding)
-            .background(Color(.secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .shadow(color: .black.opacity(shadowOpacity), radius: shadowRadius, y: 6)
+        Button(action: {
+            HapticManager.shared.warning()
+            action()
+        }) {
+            HStack(spacing: 8) {
+                if isLoading {
+                    ProgressView().controlSize(.small).tint(.red)
+                } else {
+                    if let icon {
+                        Image(systemName: icon).font(.system(size: 15, weight: .medium))
+                    }
+                    Text(title).font(.system(size: 15, weight: .medium))
+                }
+            }
+            .foregroundColor(.red)
+            .frame(maxWidth: .infinity)
+            .frame(height: 48)
+            .background(Color.red.opacity(0.1))
+            .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.lg, style: .continuous))
+        }
+        .disabled(isLoading)
+        .buttonStyle(DFScaleButtonStyle())
     }
 }
 
-// MARK: - Glass Card
+// MARK: - Text Fields
 
-struct DFGlassCard<Content: View>: View {
-    var cornerRadius: CGFloat = DFCornerRadius.xl
-    @ViewBuilder let content: () -> Content
+struct DFTextField: View {
+    let icon: String
+    let placeholder: String
+    @Binding var text: String
+    var keyboardType: UIKeyboardType = .default
+    @FocusState private var isFocused: Bool
 
     var body: some View {
-        content()
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        HStack(spacing: DFSpacing.md) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(isFocused ? .dfAccent : .secondary)
+                .frame(width: 22)
+                .animation(.easeInOut(duration: 0.2), value: isFocused)
+
+            TextField(placeholder, text: $text)
+                .font(.system(size: 16))
+                .keyboardType(keyboardType)
+                .autocapitalization(.none)
+                .disableAutocorrection(true)
+                .focused($isFocused)
+        }
+        .padding(.horizontal, DFSpacing.lg)
+        .frame(height: 52)
+        .background(Color(.tertiarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.md, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: DFCornerRadius.md, style: .continuous)
+                .stroke(isFocused ? Color.dfAccent.opacity(0.5) : Color.clear, lineWidth: 1.5)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { isFocused = true }
+    }
+}
+
+struct DFSecureField: View {
+    let icon: String
+    let placeholder: String
+    @Binding var text: String
+    @State private var showPassword = false
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(spacing: DFSpacing.md) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(isFocused ? .dfAccent : .secondary)
+                .frame(width: 22)
+                .animation(.easeInOut(duration: 0.2), value: isFocused)
+
+            Group {
+                if showPassword {
+                    TextField(placeholder, text: $text)
+                        .autocapitalization(.none)
+                        .disableAutocorrection(true)
+                } else {
+                    SecureField(placeholder, text: $text)
+                }
+            }
+            .font(.system(size: 16))
+            .focused($isFocused)
+
+            Button {
+                HapticManager.shared.light()
+                showPassword.toggle()
+            } label: {
+                Image(systemName: showPassword ? "eye.slash.fill" : "eye.fill")
+                    .font(.system(size: 15))
+                    .foregroundColor(Color(.tertiaryLabel))
+            }
+        }
+        .padding(.horizontal, DFSpacing.lg)
+        .frame(height: 52)
+        .background(Color(.tertiarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.md, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: DFCornerRadius.md, style: .continuous)
+                .stroke(isFocused ? Color.dfAccent.opacity(0.5) : Color.clear, lineWidth: 1.5)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { isFocused = true }
+    }
+}
+
+// MARK: - Status Badge
+
+struct DFStatusBadge: View {
+    let text: String
+    var color: Color = .dfAccent
+    var size: DFBadgeSize = .medium
+
+    enum DFBadgeSize {
+        case small, medium, large
+        var fontSize: CGFloat {
+            switch self { case .small: return 9; case .medium: return 11; case .large: return 13 }
+        }
+        var hPad: CGFloat {
+            switch self { case .small: return 6; case .medium: return 10; case .large: return 12 }
+        }
+        var vPad: CGFloat {
+            switch self { case .small: return 3; case .medium: return 5; case .large: return 6 }
+        }
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: size.fontSize, weight: .bold))
+            .foregroundColor(.white)
+            .padding(.horizontal, size.hPad)
+            .padding(.vertical, size.vPad)
+            .background(color)
+            .clipShape(Capsule())
     }
 }
 
@@ -229,16 +327,14 @@ struct DFSectionHeader: View {
             if let icon {
                 Image(systemName: icon)
                     .foregroundColor(iconColor)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
             }
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.secondary)
                 .textCase(.uppercase)
                 .tracking(0.5)
-            
             Spacer()
-            
             if let action, let actionLabel {
                 Button(action: action) {
                     Text(actionLabel)
@@ -247,230 +343,70 @@ struct DFSectionHeader: View {
                 }
             }
         }
-        .padding(.top, DFSpacing.lg)
-        .padding(.horizontal, DFSpacing.xs)
+        .padding(.top, DFSpacing.md)
     }
 }
 
-// MARK: - Animated Logo
+// MARK: - Card
 
-struct DFAnimatedLogo: View {
-    var size: CGFloat = 100
-    var cornerRadius: CGFloat = 24
-    @State private var scale: CGFloat = 0.5
-    @State private var opacity: Double = 0
-    @State private var glowOpacity: Double = 0
+struct DFCard<Content: View>: View {
+    var padding: CGFloat = DFSpacing.lg
+    var cornerRadius: CGFloat = DFCornerRadius.xl
+    @ViewBuilder let content: () -> Content
 
     var body: some View {
-        ZStack {
-            // Glow effect
-            Circle()
-                .fill(Color.cyan.opacity(0.15))
-                .frame(width: size * 1.8, height: size * 1.8)
-                .blur(radius: 30)
-                .opacity(glowOpacity)
-            
-            Image("AppLogo")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: size, height: size)
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .shadow(color: Color.cyan.opacity(0.35), radius: 24, y: 10)
-                .scaleEffect(scale)
-                .opacity(opacity)
+        content()
+            .padding(padding)
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .shadow(color: .black.opacity(0.04), radius: 8, y: 4)
+    }
+}
+
+// MARK: - Empty State
+
+struct DFEmptyState: View {
+    let icon: String
+    let title: String
+    var message: String? = nil
+    var actionTitle: String? = nil
+    var action: (() -> Void)? = nil
+    @State private var appeared = false
+
+    var body: some View {
+        VStack(spacing: DFSpacing.xl) {
+            ZStack {
+                Circle()
+                    .fill(Color.dfAccent.opacity(0.08))
+                    .frame(width: 88, height: 88)
+                Image(systemName: icon)
+                    .font(.system(size: 36, weight: .light))
+                    .foregroundColor(.dfAccent)
+            }
+            .scaleEffect(appeared ? 1.0 : 0.6)
+
+            VStack(spacing: DFSpacing.sm) {
+                Text(title)
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                if let message {
+                    Text(message)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, DFSpacing.xxl)
+                }
+            }
+            .opacity(appeared ? 1 : 0)
+
+            if let actionTitle, let action {
+                DFPrimaryButton(title: actionTitle, action: action)
+                    .padding(.horizontal, DFSpacing.xxxl)
+                    .opacity(appeared ? 1 : 0)
+            }
         }
         .onAppear {
-            withAnimation(.spring(response: 0.9, dampingFraction: 0.65)) {
-                scale = 1.0
-                opacity = 1.0
-            }
-            withAnimation(.easeInOut(duration: 1.2).delay(0.3)) {
-                glowOpacity = 1.0
-            }
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) { appeared = true }
         }
-    }
-}
-
-// MARK: - Floating Search Bar
-
-struct DFFloatingSearchBar: View {
-    @Binding var text: String
-    var placeholder: String = "Search..."
-    var onClear: (() -> Void)? = nil
-    @FocusState private var isFocused: Bool
-
-    var body: some View {
-        HStack(spacing: DFSpacing.md) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(isFocused ? .dfAccent : .secondary)
-                .animation(.easeInOut(duration: 0.2), value: isFocused)
-
-            TextField(placeholder, text: $text)
-                .font(.system(size: 16))
-                .foregroundColor(.primary)
-                .autocapitalization(.none)
-                .disableAutocorrection(true)
-                .focused($isFocused)
-
-            if !text.isEmpty {
-                Button(action: {
-                    HapticManager.shared.light()
-                    text = ""
-                    onClear?()
-                }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 18))
-                        .foregroundColor(Color(.tertiaryLabel))
-                }
-                .transition(.scale.combined(with: .opacity))
-            }
-        }
-        .padding(.horizontal, DFSpacing.lg)
-        .frame(height: 50)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.lg, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: DFCornerRadius.lg, style: .continuous)
-                .stroke(isFocused ? Color.dfAccent.opacity(0.5) : Color.clear, lineWidth: 1.5)
-        )
-        .shadow(color: .black.opacity(0.08), radius: 12, y: 4)
-        .animation(.easeInOut(duration: 0.2), value: text.isEmpty)
-    }
-}
-
-
-// MARK: - Rounded Input Field
-
-struct DFTextField: View {
-    let icon: String
-    let placeholder: String
-    @Binding var text: String
-    var keyboardType: UIKeyboardType = .default
-    @FocusState private var isFocused: Bool
-
-    var body: some View {
-        HStack(spacing: DFSpacing.md) {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(isFocused ? .dfAccent : .secondary)
-                .frame(width: 24)
-                .animation(.easeInOut(duration: 0.2), value: isFocused)
-
-            TextField(placeholder, text: $text)
-                .font(.system(size: 16))
-                .foregroundColor(.primary)
-                .keyboardType(keyboardType)
-                .autocapitalization(.none)
-                .disableAutocorrection(true)
-                .focused($isFocused)
-        }
-        .padding(.horizontal, DFSpacing.lg)
-        .frame(height: 56)
-        .background(Color(.tertiarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.md, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: DFCornerRadius.md, style: .continuous)
-                .stroke(isFocused ? Color.dfAccent.opacity(0.6) : Color.clear, lineWidth: 1.5)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture { isFocused = true }
-    }
-}
-
-struct DFSecureField: View {
-    let icon: String
-    let placeholder: String
-    @Binding var text: String
-    @State private var showPassword = false
-    @FocusState private var isFocused: Bool
-
-    var body: some View {
-        HStack(spacing: DFSpacing.md) {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(isFocused ? .dfAccent : .secondary)
-                .frame(width: 24)
-                .animation(.easeInOut(duration: 0.2), value: isFocused)
-
-            Group {
-                if showPassword {
-                    TextField(placeholder, text: $text)
-                        .autocapitalization(.none)
-                        .disableAutocorrection(true)
-                } else {
-                    SecureField(placeholder, text: $text)
-                }
-            }
-            .font(.system(size: 16))
-            .foregroundColor(.primary)
-            .focused($isFocused)
-
-            Button {
-                HapticManager.shared.light()
-                withAnimation(.easeInOut(duration: 0.15)) { showPassword.toggle() }
-            } label: {
-                Image(systemName: showPassword ? "eye.slash.fill" : "eye.fill")
-                    .font(.system(size: 16))
-                    .foregroundColor(Color(.tertiaryLabel))
-            }
-        }
-        .padding(.horizontal, DFSpacing.lg)
-        .frame(height: 56)
-        .background(Color(.tertiarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.md, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: DFCornerRadius.md, style: .continuous)
-                .stroke(isFocused ? Color.dfAccent.opacity(0.6) : Color.clear, lineWidth: 1.5)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture { isFocused = true }
-    }
-}
-
-// MARK: - Status Badge
-
-struct DFStatusBadge: View {
-    let text: String
-    var color: Color = .dfAccent
-    var size: DFBadgeSize = .medium
-    
-    enum DFBadgeSize {
-        case small, medium, large
-        
-        var fontSize: CGFloat {
-            switch self {
-            case .small: return 9
-            case .medium: return 11
-            case .large: return 13
-            }
-        }
-        
-        var horizontalPadding: CGFloat {
-            switch self {
-            case .small: return 6
-            case .medium: return 10
-            case .large: return 12
-            }
-        }
-        
-        var verticalPadding: CGFloat {
-            switch self {
-            case .small: return 3
-            case .medium: return 5
-            case .large: return 6
-            }
-        }
-    }
-
-    var body: some View {
-        Text(text)
-            .font(.system(size: size.fontSize, weight: .bold))
-            .foregroundColor(.white)
-            .padding(.horizontal, size.horizontalPadding)
-            .padding(.vertical, size.verticalPadding)
-            .background(color)
-            .clipShape(Capsule())
     }
 }
 
@@ -487,55 +423,9 @@ struct DFIconBadge: View {
             Circle()
                 .fill(color.opacity(0.12))
                 .frame(width: size, height: size)
-            
             Image(systemName: icon)
                 .font(.system(size: iconSize, weight: .semibold))
                 .foregroundColor(color)
-        }
-    }
-}
-
-
-// MARK: - Stat Card
-
-struct DFStatCard: View {
-    let value: String
-    let label: String
-    var icon: String? = nil
-    var color: Color = .dfAccent
-    var isAnimated: Bool = true
-    @State private var appeared = false
-
-    var body: some View {
-        VStack(spacing: DFSpacing.sm) {
-            if let icon {
-                Image(systemName: icon)
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundColor(color)
-            }
-            
-            Text(value)
-                .font(.system(size: 28, weight: .bold, design: .rounded))
-                .foregroundColor(.primary)
-                .contentTransition(.numericText())
-            
-            Text(label)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.secondary)
-                .textCase(.uppercase)
-                .tracking(0.5)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, DFSpacing.xl)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.lg, style: .continuous))
-        .scaleEffect(appeared ? 1.0 : 0.9)
-        .opacity(appeared ? 1.0 : 0)
-        .onAppear {
-            guard isAnimated else { appeared = true; return }
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
-                appeared = true
-            }
         }
     }
 }
@@ -545,16 +435,14 @@ struct DFStatCard: View {
 struct DFProgressBar: View {
     let progress: Double
     var height: CGFloat = 8
-    var backgroundColor: Color = Color(.systemGray5)
     var foregroundColors: [Color] = [.cyan, .blue]
 
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: height / 2)
-                    .fill(backgroundColor)
+                    .fill(Color(.systemGray5))
                     .frame(height: height)
-
                 RoundedRectangle(cornerRadius: height / 2)
                     .fill(LinearGradient(colors: foregroundColors, startPoint: .leading, endPoint: .trailing))
                     .frame(width: geo.size.width * min(1.0, max(0, progress)), height: height)
@@ -565,163 +453,66 @@ struct DFProgressBar: View {
     }
 }
 
-// MARK: - Shimmer Loading Effect
+// MARK: - Divider
 
-struct DFShimmer: ViewModifier {
-    @State private var phase: CGFloat = 0
-    
-    func body(content: Content) -> some View {
-        content
-            .overlay(
-                GeometryReader { geo in
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0),
-                            Color.white.opacity(0.3),
-                            Color.white.opacity(0)
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                    .frame(width: geo.size.width * 2)
-                    .offset(x: -geo.size.width + (geo.size.width * 2 * phase))
-                }
-            )
-            .mask(content)
-            .onAppear {
-                withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
-                    phase = 1
-                }
-            }
+struct DFDivider: View {
+    var leadingInset: CGFloat = 0
+    var body: some View {
+        Divider().padding(.leading, leadingInset)
     }
 }
 
-extension View {
-    func shimmer() -> some View {
-        modifier(DFShimmer())
-    }
-}
+// MARK: - Info Row
 
-// MARK: - Entrance Animation Modifier
-
-struct DFEntranceAnimation: ViewModifier {
-    let index: Int
-    let baseDelay: Double
-    @State private var appeared = false
-    
-    func body(content: Content) -> some View {
-        content
-            .opacity(appeared ? 1 : 0)
-            .offset(y: appeared ? 0 : 20)
-            .animation(
-                .spring(response: 0.5, dampingFraction: 0.8)
-                .delay(baseDelay + Double(index) * 0.05),
-                value: appeared
-            )
-            .onAppear { appeared = true }
-    }
-}
-
-extension View {
-    func entranceAnimation(index: Int = 0, baseDelay: Double = 0) -> some View {
-        modifier(DFEntranceAnimation(index: index, baseDelay: baseDelay))
-    }
-}
-
-// MARK: - Empty State View
-
-struct DFEmptyState: View {
+struct DFInfoRow: View {
     let icon: String
-    let title: String
-    var message: String? = nil
-    var actionTitle: String? = nil
-    var action: (() -> Void)? = nil
-    @State private var appeared = false
+    var iconColor: Color = .secondary
+    let label: String
+    let value: String
 
     var body: some View {
-        VStack(spacing: DFSpacing.xl) {
-            ZStack {
-                Circle()
-                    .fill(Color.dfAccent.opacity(0.1))
-                    .frame(width: 100, height: 100)
-                
-                Image(systemName: icon)
-                    .font(.system(size: 40, weight: .light))
-                    .foregroundColor(.dfAccent)
-            }
-            .scaleEffect(appeared ? 1.0 : 0.5)
-            
-            VStack(spacing: DFSpacing.sm) {
-                Text(title)
-                    .font(.system(size: 20, weight: .semibold, design: .rounded))
-                    .foregroundColor(.primary)
-                
-                if let message {
-                    Text(message)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, DFSpacing.xxl)
-                }
-            }
-            .opacity(appeared ? 1.0 : 0)
-            
-            if let actionTitle, let action {
-                DFPrimaryButton(title: actionTitle, action: action)
-                    .padding(.horizontal, DFSpacing.xxxl)
-                    .opacity(appeared ? 1.0 : 0)
-            }
+        HStack(spacing: DFSpacing.md) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(iconColor)
+                .frame(width: 26)
+            Text(label)
+                .font(.system(size: 14))
+                .foregroundColor(.secondary)
+            Spacer()
+            Text(value)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.primary)
+                .multilineTextAlignment(.trailing)
         }
-        .onAppear {
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
-                appeared = true
-            }
-        }
+        .padding(.horizontal, DFSpacing.lg)
+        .padding(.vertical, 11)
     }
 }
 
-
-// MARK: - Map Pin Annotation
+// MARK: - Map Pin
 
 struct DFMapPin: View {
-    var title: String? = nil
     var color: Color = .dfAccent
     var size: CGFloat = 44
     @State private var appeared = false
     @State private var bouncing = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            ZStack {
-                Circle()
-                    .fill(color.opacity(0.2))
-                    .frame(width: size, height: size)
-                    .scaleEffect(bouncing ? 1.2 : 1.0)
-                
-                Image(systemName: "mappin.circle.fill")
-                    .font(.system(size: size * 0.7))
-                    .foregroundColor(color)
-            }
-            .offset(y: appeared ? 0 : -30)
-            .opacity(appeared ? 1 : 0)
-            
-            if let title {
-                Text(title)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.primary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .opacity(appeared ? 1 : 0)
-            }
+        ZStack {
+            Circle()
+                .fill(color.opacity(0.2))
+                .frame(width: size, height: size)
+                .scaleEffect(bouncing ? 1.15 : 1.0)
+            Image(systemName: "mappin.circle.fill")
+                .font(.system(size: size * 0.7))
+                .foregroundColor(color)
         }
+        .offset(y: appeared ? 0 : -20)
+        .opacity(appeared ? 1 : 0)
         .onAppear {
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.6)) {
-                appeared = true
-            }
-            withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true).delay(0.5)) {
-                bouncing = true
-            }
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) { appeared = true }
+            withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true).delay(0.3)) { bouncing = true }
         }
     }
 }
@@ -743,95 +534,222 @@ struct DFFloatingActionButton: View {
                 .font(.system(size: 22, weight: .semibold))
                 .foregroundColor(.white)
                 .frame(width: size, height: size)
-                .background(
-                    LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
-                )
+                .background(LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing))
                 .clipShape(Circle())
-                .shadow(color: colors.first!.opacity(0.4), radius: 12, y: 6)
+                .shadow(color: colors.first!.opacity(0.35), radius: 12, y: 6)
         }
         .buttonStyle(DFScaleButtonStyle())
     }
 }
 
-// MARK: - Info Row
+// MARK: - Animated Logo
 
-struct DFInfoRow: View {
-    let icon: String
-    var iconColor: Color = .secondary
-    let label: String
-    let value: String
+struct DFAnimatedLogo: View {
+    var size: CGFloat = 100
+    var cornerRadius: CGFloat = 24
+    @State private var scale: CGFloat = 0.5
+    @State private var opacity: Double = 0
 
     var body: some View {
-        HStack(spacing: DFSpacing.md) {
-            Image(systemName: icon)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundColor(iconColor)
-                .frame(width: 28)
-            
-            Text(label)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            
-            Spacer()
-            
-            Text(value)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundColor(.primary)
+        ZStack {
+            Circle()
+                .fill(Color.cyan.opacity(0.12))
+                .frame(width: size * 1.6, height: size * 1.6)
+                .blur(radius: 25)
+                .opacity(opacity)
+            Image("AppLogo")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .shadow(color: Color.cyan.opacity(0.3), radius: 20, y: 8)
+                .scaleEffect(scale)
+                .opacity(opacity)
         }
-        .padding(.horizontal, DFSpacing.lg)
-        .padding(.vertical, DFSpacing.md)
+        .onAppear {
+            withAnimation(.spring(response: 0.8, dampingFraction: 0.65)) {
+                scale = 1.0; opacity = 1.0
+            }
+        }
     }
 }
 
-// MARK: - Divider with Inset
+// MARK: - Entrance Animation
 
-struct DFDivider: View {
-    var leadingInset: CGFloat = 0
+struct DFEntranceAnimation: ViewModifier {
+    let index: Int
+    let baseDelay: Double
+    @State private var appeared = false
 
-    var body: some View {
-        Divider()
-            .padding(.leading, leadingInset)
-    }
-}
-
-// MARK: - Pulse Animation
-
-struct DFPulse: ViewModifier {
-    @State private var isPulsing = false
-    
     func body(content: Content) -> some View {
         content
-            .scaleEffect(isPulsing ? 1.05 : 1.0)
-            .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: isPulsing)
-            .onAppear { isPulsing = true }
+            .opacity(appeared ? 1 : 0)
+            .offset(y: appeared ? 0 : 16)
+            .animation(
+                .spring(response: 0.45, dampingFraction: 0.8)
+                .delay(baseDelay + Double(index) * 0.04),
+                value: appeared
+            )
+            .onAppear { appeared = true }
     }
 }
 
 extension View {
-    func pulse() -> some View {
-        modifier(DFPulse())
+    func entranceAnimation(index: Int = 0, baseDelay: Double = 0) -> some View {
+        modifier(DFEntranceAnimation(index: index, baseDelay: baseDelay))
     }
+}
+
+// MARK: - Shimmer
+
+struct DFShimmer: ViewModifier {
+    @State private var phase: CGFloat = 0
+    func body(content: Content) -> some View {
+        content
+            .overlay(
+                GeometryReader { geo in
+                    LinearGradient(
+                        colors: [.white.opacity(0), .white.opacity(0.25), .white.opacity(0)],
+                        startPoint: .leading, endPoint: .trailing
+                    )
+                    .frame(width: geo.size.width * 2)
+                    .offset(x: -geo.size.width + (geo.size.width * 2 * phase))
+                }
+            )
+            .mask(content)
+            .onAppear {
+                withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) { phase = 1 }
+            }
+    }
+}
+
+extension View {
+    func shimmer() -> some View { modifier(DFShimmer()) }
 }
 
 // MARK: - Blur Background
 
 struct DFBlurBackground: View {
     var style: UIBlurEffect.Style = .systemMaterial
-    
     var body: some View {
-        VisualEffectBlur(blurStyle: style)
-            .ignoresSafeArea()
+        VisualEffectBlur(blurStyle: style).ignoresSafeArea()
     }
 }
 
 struct VisualEffectBlur: UIViewRepresentable {
     var blurStyle: UIBlurEffect.Style
-    
-    func makeUIView(context: Context) -> UIVisualEffectView {
-        UIVisualEffectView(effect: UIBlurEffect(style: blurStyle))
+    func makeUIView(context: Context) -> UIVisualEffectView { UIVisualEffectView(effect: UIBlurEffect(style: blurStyle)) }
+    func updateUIView(_ uiView: UIVisualEffectView, context: Context) { uiView.effect = UIBlurEffect(style: blurStyle) }
+}
+
+// MARK: - Stat Card
+
+struct DFStatCard: View {
+    let value: String
+    let label: String
+    var icon: String? = nil
+    var color: Color = .dfAccent
+    @State private var appeared = false
+
+    var body: some View {
+        VStack(spacing: DFSpacing.sm) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundColor(color)
+            }
+            Text(value)
+                .font(.system(size: 26, weight: .bold, design: .rounded))
+                .contentTransition(.numericText())
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.secondary)
+                .textCase(.uppercase)
+                .tracking(0.5)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, DFSpacing.xl)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.lg, style: .continuous))
+        .scaleEffect(appeared ? 1 : 0.92)
+        .opacity(appeared ? 1 : 0)
+        .onAppear {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) { appeared = true }
+        }
     }
-    
-    func updateUIView(_ uiView: UIVisualEffectView, context: Context) {
-        uiView.effect = UIBlurEffect(style: blurStyle)
+}
+
+// MARK: - Floating Search Bar
+
+struct DFFloatingSearchBar: View {
+    @Binding var text: String
+    var placeholder: String = "Search..."
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(spacing: DFSpacing.md) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(isFocused ? .dfAccent : .secondary)
+            TextField(placeholder, text: $text)
+                .font(.system(size: 16))
+                .focused($isFocused)
+            if !text.isEmpty {
+                Button { HapticManager.shared.light(); text = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 17))
+                        .foregroundColor(Color(.tertiaryLabel))
+                }
+                .transition(.scale.combined(with: .opacity))
+            }
+        }
+        .padding(.horizontal, DFSpacing.lg)
+        .frame(height: 48)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.lg, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: DFCornerRadius.lg, style: .continuous)
+                .stroke(isFocused ? Color.dfAccent.opacity(0.4) : .clear, lineWidth: 1.5)
+        )
+        .shadow(color: .black.opacity(0.06), radius: 8, y: 3)
     }
+}
+
+// MARK: - Glass Card
+
+struct DFGlassCard<Content: View>: View {
+    var cornerRadius: CGFloat = DFCornerRadius.xl
+    @ViewBuilder let content: () -> Content
+    var body: some View {
+        content()
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+    }
+}
+
+// MARK: - Pulse Modifier
+
+struct DFPulse: ViewModifier {
+    @State private var isPulsing = false
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(isPulsing ? 1.04 : 1.0)
+            .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: isPulsing)
+            .onAppear { isPulsing = true }
+    }
+}
+
+extension View {
+    func pulse() -> some View { modifier(DFPulse()) }
+}
+
+
+// MARK: - Safe Double → Int Conversion
+
+/// Safely converts a Double to Int, clamping to Int range and handling NaN/infinity.
+func safeIntFromDouble(_ value: Double) -> Int {
+    guard value.isFinite else { return 0 }
+    if value >= Double(Int.max) { return Int.max }
+    if value <= Double(Int.min) { return Int.min }
+    return Int(value)
 }

@@ -32,7 +32,7 @@ struct QRCodeGenerator {
     
     /// Generates a unique token for event pass
     static func generatePassToken(eventId: String, userId: String) -> String {
-        let timestamp = Int(Date().timeIntervalSince1970 * 1000)
+        let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
         let randomSuffix = String(format: "%06d", Int.random(in: 0...999999))
         return "\(eventId)_\(userId)_\(timestamp)_\(randomSuffix)"
     }

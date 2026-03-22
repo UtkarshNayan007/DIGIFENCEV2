@@ -8,6 +8,7 @@
 import Foundation
 import Combine
 @preconcurrency import AVFoundation
+import FirebaseAuth
 import FirebaseFirestore
 
 struct ScanResult {
@@ -166,6 +167,22 @@ final class QRScannerViewModel: NSObject, ObservableObject {
         let eventDoc = try await firebase.eventsCollection.document(ticket.eventId).getDocument()
         let event = try? eventDoc.data(as: Event.self)
         
+        // Verify the scanning admin is the event organizer
+        let currentUid = Auth.auth().currentUser?.uid
+        print("🔐 [EntryCode] Current admin UID: \(currentUid ?? "nil")")
+        print("🔐 [EntryCode] Event organizerId: \(event?.organizerId ?? "nil")")
+        print("🔐 [EntryCode] Match: \(currentUid != nil && event?.organizerId == currentUid)")
+        
+        guard let event = event, let currentUid = currentUid, event.organizerId == currentUid else {
+            return ScanResult(
+                isValid: false,
+                message: "You are not the organizer of this event. Only the event creator can verify check-ins.",
+                eventTitle: event?.title,
+                entryCode: ticket.entryCode,
+                userName: nil
+            )
+        }
+        
         // Fetch user details
         let userDoc = try await firebase.usersCollection.document(ticket.ownerId).getDocument()
         let user = try? userDoc.data(as: AppUser.self)
@@ -180,7 +197,7 @@ final class QRScannerViewModel: NSObject, ObservableObject {
         return ScanResult(
             isValid: true,
             message: "Check-in successful!",
-            eventTitle: event?.title,
+            eventTitle: event.title,
             entryCode: ticket.entryCode,
             userName: user?.displayName
         )
@@ -232,6 +249,22 @@ final class QRScannerViewModel: NSObject, ObservableObject {
         let eventDoc = try await firebase.eventsCollection.document(ticket.eventId).getDocument()
         let event = try? eventDoc.data(as: Event.self)
         
+        // Verify the scanning admin is the event organizer
+        let currentUid2 = Auth.auth().currentUser?.uid
+        print("🔐 [QRToken] Current admin UID: \(currentUid2 ?? "nil")")
+        print("🔐 [QRToken] Event organizerId: \(event?.organizerId ?? "nil")")
+        print("🔐 [QRToken] Match: \(currentUid2 != nil && event?.organizerId == currentUid2)")
+        
+        guard let event = event, let currentUid = currentUid2, event.organizerId == currentUid else {
+            return ScanResult(
+                isValid: false,
+                message: "You are not the organizer of this event. Only the event creator can verify check-ins.",
+                eventTitle: event?.title,
+                entryCode: ticket.entryCode,
+                userName: nil
+            )
+        }
+        
         // Fetch user details
         let userDoc = try await firebase.usersCollection.document(ticket.ownerId).getDocument()
         let user = try? userDoc.data(as: AppUser.self)
@@ -246,7 +279,7 @@ final class QRScannerViewModel: NSObject, ObservableObject {
         return ScanResult(
             isValid: true,
             message: "Check-in successful!",
-            eventTitle: event?.title,
+            eventTitle: event.title,
             entryCode: ticket.entryCode,
             userName: user?.displayName
         )

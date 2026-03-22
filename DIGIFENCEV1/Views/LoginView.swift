@@ -2,7 +2,7 @@
 //  LoginView.swift
 //  DIGIFENCEV1
 //
-//  Premium professional login experience with phone number support.
+//  Clean, minimal login/signup with email verification support.
 //
 
 import SwiftUI
@@ -10,328 +10,206 @@ import SwiftUI
 struct LoginView: View {
     @StateObject private var viewModel = AuthViewModel()
     @State private var isSignUp = false
-    @State private var logoAppeared = false
-    @State private var formAppeared = false
-    @State private var backgroundAnimating = false
-    
+    @State private var appeared = false
+
     var body: some View {
-        GeometryReader { geometry in
+        GeometryReader { geo in
             ZStack {
-                // Animated Background
-                animatedBackground
-                
+                Color(.systemBackground).ignoresSafeArea()
+
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 0) {
-                        Spacer()
-                            .frame(height: max(50, geometry.size.height * 0.06))
-                        
-                        // Logo Section
-                        logoSection
-                            .padding(.bottom, 36)
-                        
-                        // Main Content Card
-                        mainContentCard
-                            .padding(.horizontal, 20)
-                        
-                        Spacer()
-                            .frame(height: 40)
+                        Spacer().frame(height: max(60, geo.size.height * 0.1))
+
+                        // Logo
+                        DFAnimatedLogo(size: 80, cornerRadius: 20)
+                            .padding(.bottom, 12)
+
+                        VStack(spacing: 4) {
+                            Text("DigiFence")
+                                .font(.system(size: 32, weight: .bold, design: .rounded))
+                            Text("Secure Event Access")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.bottom, 36)
+
+                        // Form Card
+                        formCard
+                            .padding(.horizontal, 24)
+                            .opacity(appeared ? 1 : 0)
+                            .offset(y: appeared ? 0 : 30)
+
+                        // Toggle
+                        toggleFooter
+                            .padding(.top, 24)
+                            .padding(.bottom, 40)
                     }
-                    .frame(minHeight: geometry.size.height)
+                    .frame(minHeight: geo.size.height)
                 }
             }
         }
         .ignoresSafeArea(.keyboard)
-        .onAppear(perform: animateEntrance)
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.5).delay(0.2)) { appeared = true }
+        }
         .alert("Error", isPresented: $viewModel.showError) {
             Button("OK") {}
         } message: {
-            Text(viewModel.errorMessage ?? "An unknown error occurred.")
-        }
-    }
-    
-    // MARK: - Animated Background
-    
-    private var animatedBackground: some View {
-        ZStack {
-            Color(.systemBackground)
-            
-            // Animated gradient orbs
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [Color.cyan.opacity(0.18), Color.clear],
-                        center: .center,
-                        startRadius: 0,
-                        endRadius: 220
-                    )
-                )
-                .frame(width: 450, height: 450)
-                .offset(x: backgroundAnimating ? -80 : -120, y: backgroundAnimating ? -180 : -220)
-                .blur(radius: 70)
-            
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [Color.blue.opacity(0.12), Color.clear],
-                        center: .center,
-                        startRadius: 0,
-                        endRadius: 200
-                    )
-                )
-                .frame(width: 400, height: 400)
-                .offset(x: backgroundAnimating ? 130 : 170, y: backgroundAnimating ? 320 : 280)
-                .blur(radius: 60)
-            
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [Color.purple.opacity(0.08), Color.clear],
-                        center: .center,
-                        startRadius: 0,
-                        endRadius: 150
-                    )
-                )
-                .frame(width: 300, height: 300)
-                .offset(x: backgroundAnimating ? -150 : -180, y: backgroundAnimating ? 200 : 240)
-                .blur(radius: 50)
-        }
-        .ignoresSafeArea()
-        .onAppear {
-            withAnimation(.easeInOut(duration: 8).repeatForever(autoreverses: true)) {
-                backgroundAnimating = true
-            }
+            Text(viewModel.errorMessage ?? "Something went wrong.")
         }
     }
 
-    // MARK: - Logo Section
-    
-    private var logoSection: some View {
-        VStack(spacing: 18) {
-            // Animated Logo
-            ZStack {
-                // Glow ring
-                Circle()
-                    .fill(Color.cyan.opacity(0.12))
-                    .frame(width: 140, height: 140)
-                    .blur(radius: 25)
-                    .scaleEffect(logoAppeared ? 1.0 : 0.5)
-                
-                Image("AppLogo")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 110, height: 110)
-                    .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-                    .shadow(color: Color.cyan.opacity(0.4), radius: 28, y: 12)
-                    .scaleEffect(logoAppeared ? 1.0 : 0.3)
-            }
-            
-            VStack(spacing: 8) {
-                Text("DigiFence")
-                    .font(.system(size: 38, weight: .bold, design: .rounded))
-                    .foregroundColor(.primary)
-                
-                Text("Secure Event Access")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundColor(.secondary)
-            }
-            .opacity(logoAppeared ? 1 : 0)
-            .offset(y: logoAppeared ? 0 : 15)
-        }
-    }
-    
-    // MARK: - Main Content Card
-    
-    private var mainContentCard: some View {
-        VStack(spacing: 24) {
-            // Verification Banner
+    // MARK: - Form Card
+
+    private var formCard: some View {
+        VStack(spacing: 16) {
             if viewModel.showVerificationSent {
                 verificationBanner
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .top).combined(with: .opacity),
-                        removal: .opacity
-                    ))
             }
-            
-            // Mode Toggle Header
-            modeToggleHeader
-            
-            // Form Fields
-            formFields
-            
+
+            // Mode Toggle
+            modeToggle
+
+            // Fields
+            VStack(spacing: 12) {
+                if isSignUp {
+                    DFTextField(icon: "person", placeholder: "Full Name", text: $viewModel.displayName)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+                DFTextField(icon: "envelope", placeholder: "Email", text: $viewModel.email, keyboardType: .emailAddress)
+                DFSecureField(icon: "lock", placeholder: "Password", text: $viewModel.password)
+                if isSignUp {
+                    DFPhoneField(icon: "phone", placeholder: "Phone Number", text: $viewModel.phoneNumber)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+
             // Primary Action
-            primaryActionButton
-            
-            // Resend Verification
-            if viewModel.showVerificationSent && !isSignUp {
-                resendVerificationButton
+            DFPrimaryButton(
+                title: isSignUp ? "Create Account" : "Sign In",
+                icon: isSignUp ? "person.badge.plus" : "arrow.right",
+                isLoading: viewModel.isLoading
+            ) {
+                Task {
+                    if isSignUp { await viewModel.signUp() }
+                    else { await viewModel.signIn() }
+                }
             }
-            
+            .padding(.top, 4)
+
+            if viewModel.showVerificationSent && !isSignUp {
+                Button {
+                    Task { await viewModel.resendVerificationEmail() }
+                } label: {
+                    Label("Resend Verification Email", systemImage: "envelope.arrow.triangle.branch")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.dfAccent)
+                }
+            }
+
             // Divider
-            orDivider
-            
-            // Google Sign In (Apple removed)
-            googleSignInButton
-            
-            // Toggle Sign In/Up
-            toggleButton
+            HStack(spacing: 14) {
+                Rectangle().fill(Color(.separator).opacity(0.3)).frame(height: 0.5)
+                Text("or").font(.system(size: 13, weight: .medium)).foregroundColor(Color(.tertiaryLabel))
+                Rectangle().fill(Color(.separator).opacity(0.3)).frame(height: 0.5)
+            }
+            .padding(.vertical, 4)
+
+            // Google
+            DFSecondaryButton(title: "Continue with Google", icon: "g.circle.fill") {
+                Task { await viewModel.signInWithGoogle() }
+            }
         }
-        .padding(24)
+        .padding(22)
         .background(
             RoundedRectangle(cornerRadius: DFCornerRadius.xxl, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground).opacity(0.95))
-                .shadow(color: .black.opacity(0.08), radius: 24, y: 12)
+                .fill(.ultraThinMaterial)
+                .shadow(color: .black.opacity(0.05), radius: 16, y: 8)
         )
-        .opacity(formAppeared ? 1 : 0)
-        .offset(y: formAppeared ? 0 : 40)
+        .overlay(
+            RoundedRectangle(cornerRadius: DFCornerRadius.xxl, style: .continuous)
+                .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+        )
     }
 
-    // MARK: - Mode Toggle Header
-    
-    private var modeToggleHeader: some View {
+    // MARK: - Mode Toggle
+
+    private var modeToggle: some View {
         HStack(spacing: 0) {
-            ForEach([("Sign In", false), ("Sign Up", true)], id: \.0) { title, isSignUpMode in
-                Button(action: {
+            ForEach([("Sign In", false), ("Sign Up", true)], id: \.0) { title, mode in
+                Button {
                     HapticManager.shared.selection()
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                        isSignUp = isSignUpMode
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        isSignUp = mode
                         viewModel.showVerificationSent = false
                     }
-                }) {
+                } label: {
                     Text(title)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(isSignUp == isSignUpMode ? .white : .secondary)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(isSignUp == mode ? .white : .secondary)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 42)
+                        .frame(height: 40)
                         .background(
                             Group {
-                                if isSignUp == isSignUpMode {
+                                if isSignUp == mode {
                                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(LinearGradient(colors: [.cyan, .blue], startPoint: .leading, endPoint: .trailing))
+                                        .fill(DFGradients.accentHorizontal)
                                 }
                             }
                         )
                 }
             }
         }
-        .padding(4)
+        .padding(3)
         .background(Color(.tertiarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-    
-    // MARK: - Form Fields
-    
-    private var formFields: some View {
-        VStack(spacing: 14) {
-            if isSignUp {
-                DFTextField(icon: "person", placeholder: "Full Name", text: $viewModel.displayName)
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .top).combined(with: .opacity),
-                        removal: .opacity
-                    ))
-            }
-            
-            DFTextField(icon: "envelope", placeholder: "Email Address", text: $viewModel.email, keyboardType: .emailAddress)
-            
-            DFSecureField(icon: "lock", placeholder: "Password", text: $viewModel.password)
-            
-            if isSignUp {
-                DFPhoneField(icon: "phone", placeholder: "Phone Number", text: $viewModel.phoneNumber)
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .bottom).combined(with: .opacity),
-                        removal: .opacity
-                    ))
-            }
-        }
-    }
-    
-    // MARK: - Primary Action Button
-    
-    private var primaryActionButton: some View {
-        DFPrimaryButton(
-            title: isSignUp ? "Create Account" : "Sign In",
-            icon: isSignUp ? "person.badge.plus" : "arrow.right",
-            isLoading: viewModel.isLoading
-        ) {
-            Task {
-                if isSignUp { await viewModel.signUp() }
-                else { await viewModel.signIn() }
-            }
-        }
-    }
-    
-    // MARK: - Resend Verification
-    
-    private var resendVerificationButton: some View {
-        Button(action: {
-            HapticManager.shared.light()
-            Task { await viewModel.resendVerificationEmail() }
-        }) {
-            HStack(spacing: 8) {
-                Image(systemName: "envelope.arrow.triangle.branch")
-                    .font(.system(size: 14, weight: .medium))
-                Text("Resend Verification Email")
-                    .font(.system(size: 14, weight: .medium))
-            }
-            .foregroundColor(.dfAccent)
-        }
-        .transition(.opacity)
+        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
     }
 
-    // MARK: - Or Divider
-    
-    private var orDivider: some View {
-        HStack(spacing: 16) {
-            Rectangle()
-                .fill(Color(.separator).opacity(0.4))
-                .frame(height: 0.5)
-            
-            Text("or continue with")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(Color(.tertiaryLabel))
-            
-            Rectangle()
-                .fill(Color(.separator).opacity(0.4))
-                .frame(height: 0.5)
-        }
-    }
-    
-    // MARK: - Google Sign In Button
-    
-    private var googleSignInButton: some View {
-        Button(action: {
-            HapticManager.shared.light()
-            Task { await viewModel.signInWithGoogle() }
-        }) {
-            HStack(spacing: 12) {
-                Image(systemName: "globe")
-                    .font(.system(size: 20, weight: .medium))
-                Text("Continue with Google")
-                    .font(.system(size: 16, weight: .semibold))
+    // MARK: - Verification Banner
+
+    private var verificationBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "envelope.badge.shield.half.filled")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundColor(.green)
+                .frame(width: 36, height: 36)
+                .background(Color.green.opacity(0.12))
+                .clipShape(Circle())
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Verification Sent")
+                    .font(.system(size: 14, weight: .semibold))
+                Text(viewModel.verificationMessage ?? "Check your email.")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
             }
-            .foregroundColor(.primary)
-            .frame(maxWidth: .infinity)
-            .frame(height: 54)
-            .background(Color(.tertiarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.lg, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: DFCornerRadius.lg, style: .continuous)
-                    .stroke(Color(.separator).opacity(0.3), lineWidth: 1)
-            )
+            Spacer()
         }
-        .buttonStyle(DFScaleButtonStyle())
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: DFCornerRadius.md, style: .continuous)
+                .fill(Color.green.opacity(0.06))
+                .overlay(
+                    RoundedRectangle(cornerRadius: DFCornerRadius.md, style: .continuous)
+                        .stroke(Color.green.opacity(0.15), lineWidth: 1)
+                )
+        )
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
-    
-    // MARK: - Toggle Button
-    
-    private var toggleButton: some View {
-        Button(action: {
+
+    // MARK: - Toggle Footer
+
+    private var toggleFooter: some View {
+        Button {
             HapticManager.shared.selection()
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                 isSignUp.toggle()
                 viewModel.showVerificationSent = false
             }
-        }) {
-            HStack(spacing: 6) {
+        } label: {
+            HStack(spacing: 4) {
                 Text(isSignUp ? "Already have an account?" : "Don't have an account?")
                     .foregroundColor(.secondary)
                 Text(isSignUp ? "Sign In" : "Sign Up")
@@ -341,115 +219,53 @@ struct LoginView: View {
             .font(.system(size: 14))
         }
     }
-    
-    // MARK: - Verification Banner
-    
-    private var verificationBanner: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(Color.green.opacity(0.15))
-                    .frame(width: 44, height: 44)
-                
-                Image(systemName: "envelope.badge.shield.half.filled")
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundColor(.green)
-            }
-            
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Verification Sent")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.primary)
-                
-                Text(viewModel.verificationMessage ?? "Check your email inbox.")
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-            }
-            
-            Spacer()
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: DFCornerRadius.lg, style: .continuous)
-                .fill(Color.green.opacity(0.08))
-                .overlay(
-                    RoundedRectangle(cornerRadius: DFCornerRadius.lg, style: .continuous)
-                        .stroke(Color.green.opacity(0.2), lineWidth: 1)
-                )
-        )
-    }
-    
-    // MARK: - Animation
-    
-    private func animateEntrance() {
-        withAnimation(.spring(response: 0.9, dampingFraction: 0.7)) {
-            logoAppeared = true
-        }
-        withAnimation(.easeOut(duration: 0.7).delay(0.35)) {
-            formAppeared = true
-        }
-    }
 }
 
-
-// MARK: - Phone Number Field Component
+// MARK: - Phone Field
 
 struct DFPhoneField: View {
     let icon: String
     let placeholder: String
     @Binding var text: String
     @FocusState private var isFocused: Bool
-    @State private var isValid: Bool = true
+    @State private var isValid = true
 
     var body: some View {
         HStack(spacing: DFSpacing.md) {
             Image(systemName: icon)
-                .font(.system(size: 16, weight: .medium))
+                .font(.system(size: 15, weight: .medium))
                 .foregroundColor(isFocused ? .dfAccent : (isValid ? .secondary : .red))
-                .frame(width: 24)
-                .animation(.easeInOut(duration: 0.2), value: isFocused)
-
+                .frame(width: 22)
             TextField(placeholder, text: $text)
                 .font(.system(size: 16))
-                .foregroundColor(.primary)
                 .keyboardType(.phonePad)
                 .focused($isFocused)
                 .onChange(of: text) { _, newValue in
-                    // Format and validate as user types
                     validatePhone(newValue)
                 }
-            
-            // Validation indicator
             if !text.isEmpty {
                 Image(systemName: isValid ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                    .font(.system(size: 18))
+                    .font(.system(size: 17))
                     .foregroundColor(isValid ? .green : .red)
                     .transition(.scale.combined(with: .opacity))
             }
         }
         .padding(.horizontal, DFSpacing.lg)
-        .frame(height: 56)
+        .frame(height: 52)
         .background(Color(.tertiarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.md, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: DFCornerRadius.md, style: .continuous)
-                .stroke(isFocused ? Color.dfAccent.opacity(0.6) : (isValid ? Color.clear : Color.red.opacity(0.5)), lineWidth: 1.5)
+                .stroke(isFocused ? Color.dfAccent.opacity(0.5) : (isValid ? Color.clear : Color.red.opacity(0.4)), lineWidth: 1.5)
         )
         .contentShape(Rectangle())
         .onTapGesture { isFocused = true }
     }
-    
+
     private func validatePhone(_ phone: String) {
-        if phone.isEmpty {
-            isValid = true
-            return
-        }
-        let cleanedPhone = phone.replacingOccurrences(of: "[\\s\\-\\(\\)]", with: "", options: .regularExpression)
-        let phoneRegex = "^\\+?[0-9]{10,15}$"
-        let phonePredicate = NSPredicate(format: "SELF MATCHES %@", phoneRegex)
-        withAnimation(.easeInOut(duration: 0.2)) {
-            isValid = phonePredicate.evaluate(with: cleanedPhone)
-        }
+        guard !phone.isEmpty else { isValid = true; return }
+        let cleaned = phone.replacingOccurrences(of: "[\\s\\-\\(\\)]", with: "", options: .regularExpression)
+        let pred = NSPredicate(format: "SELF MATCHES %@", "^\\+?[0-9]{10,15}$")
+        withAnimation(.easeInOut(duration: 0.2)) { isValid = pred.evaluate(with: cleaned) }
     }
 }

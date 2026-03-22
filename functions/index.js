@@ -698,6 +698,98 @@ exports.handleHysteresis = onSchedule("every 1 minutes", async () => {
   }
 });
 
+// ─── handleExpiredEvents ─────────────────────────────────────────────────
+
+/**
+ * Scheduled every 5 minutes. Finds active events whose endsAt has passed,
+ * deactivates them, and expires all their active/pending tickets.
+ */
+exports.handleExpiredEvents = onSchedule("every 5 minutes", async () => {
+  const now = new Date();
+
+  // Find active events that have ended
+  const eventsSnap = await db
+    .collection("events")
+    .where("isActive", "==", true)
+    .where("endsAt", "<=", now)
+    .get();
+
+  if (eventsSnap.empty) {
+    console.log("handleExpiredEvents: no expired events found.");
+    return;
+  }
+
+  let deactivatedEvents = 0;
+  let expiredTickets = 0;
+
+  for (const eventDoc of eventsSnap.docs) {
+    const eventId = eventDoc.id;
+    const eventTitle = eventDoc.data().title || eventId;
+
+    const batch = db.batch();
+
+    // Deactivate the event
+    batch.update(eventDoc.ref, { isActive: false });
+    deactivatedEvents++;
+
+    // Find all active/pending tickets for this event
+    const ticketsSnap = await db
+      .collection("tickets")
+      .where("eventId", "==", eventId)
+      .where("status", "in", ["active", "pending"])
+      .get();
+
+    for (const ticketDoc of ticketsSnap.docs) {
+      batch.update(ticketDoc.ref, {
+        status: "expired",
+        biometricVerified: false,
+        insideFence: false,
+      });
+
+      const logRef = db.collection("attendance_logs").doc();
+      batch.set(logRef, {
+        ticketId: ticketDoc.id,
+        type: "expired",
+        detail: {
+          reason: "event_ended",
+          eventTitle,
+        },
+        timestamp: FieldValue.serverTimestamp(),
+      });
+      expiredTickets++;
+    }
+
+    await batch.commit();
+  }
+
+  console.log(
+    `handleExpiredEvents: deactivated ${deactivatedEvents} event(s), expired ${expiredTickets} ticket(s).`
+  );
+});
+
+// ─── onTicketCreated ─────────────────────────────────────────────────────────
+
+/**
+ * Firestore trigger: increments ticketsSold on the event when a new ticket is created.
+ */
+exports.onTicketCreated = onDocumentCreated("tickets/{ticketId}", async (event) => {
+  const ticketData = event.data?.data();
+  if (!ticketData || !ticketData.eventId) {
+    console.log("onTicketCreated: No eventId found, skipping.");
+    return;
+  }
+
+  const eventRef = db.collection("events").doc(ticketData.eventId);
+  try {
+    await eventRef.update({
+      ticketsSold: FieldValue.increment(1),
+    });
+    console.log(`Incremented ticketsSold for event ${ticketData.eventId}`);
+  } catch (err) {
+    console.error("Failed to increment ticketsSold:", err.message);
+  }
+});
+
 // ─── sendWelcomeEmail ───────────────────────────────────────────────────────
 
 /**

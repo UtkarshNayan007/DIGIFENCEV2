@@ -2,379 +2,453 @@
 //  MyPassView.swift
 //  DIGIFENCEV1
 //
-//  Premium digital passes with animated cards and real-time status.
+//  Apple Wallet-style passes with event info, large QR, auto-brightness, pull-to-refresh.
 //
 
 import SwiftUI
+import FirebaseCore
+import UIKit
 
 struct MyPassView: View {
     @StateObject private var viewModel = MyPassViewModel()
     @StateObject private var ticketVM = TicketViewModel()
-    
+    @State private var selectedFilter: PassFilter = .all
+    @State private var expandedPassId: String? = nil
+
+    enum PassFilter: String, CaseIterable {
+        case all = "All"
+        case active = "Active"
+        case pending = "Pending"
+        case expired = "Expired"
+    }
+
     var body: some View {
         ZStack {
-            Color(.systemGroupedBackground)
-                .ignoresSafeArea()
-            
-            if viewModel.isLoading {
-                loadingView
+            Color(.systemGroupedBackground).ignoresSafeArea()
+
+            if viewModel.isLoading && viewModel.tickets.isEmpty {
+                VStack(spacing: DFSpacing.lg) {
+                    ProgressView().controlSize(.large).tint(.dfAccent)
+                    Text("Loading passes...").font(.subheadline).foregroundColor(.secondary)
+                }
             } else if viewModel.tickets.isEmpty {
-                DFEmptyState(
-                    icon: "ticket",
-                    title: "No Passes Yet",
-                    message: "Browse events and get your first ticket to see it here."
-                )
+                DFEmptyState(icon: "ticket", title: "No Passes Yet", message: "Browse events and get your first ticket.")
             } else {
-                passesScrollView
+                VStack(spacing: 0) {
+                    if viewModel.tickets.count > 1 { filterChips }
+                    passesScrollView
+                }
             }
         }
         .navigationTitle("My Passes")
         .navigationBarTitleDisplayMode(.large)
         .onAppear { viewModel.startListening() }
-        .onDisappear { viewModel.stopListening() }
-    }
-    
-    // MARK: - Loading View
-    
-    private var loadingView: some View {
-        VStack(spacing: DFSpacing.lg) {
-            ProgressView()
-                .controlSize(.large)
-                .tint(.dfAccent)
-            
-            Text("Loading passes...")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+        .onDisappear {
+            viewModel.stopListening()
+            restoreBrightness()
         }
     }
-    
-    // MARK: - Passes Scroll View
-    
+
+    private var filterChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: DFSpacing.sm) {
+                ForEach(PassFilter.allCases, id: \.self) { filter in
+                    let count = ticketCount(for: filter)
+                    Button {
+                        HapticManager.shared.selection()
+                        withAnimation(.spring(response: 0.3)) { selectedFilter = filter }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(filter.rawValue)
+                            if count > 0 && filter != .all {
+                                Text("\(count)")
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .padding(.horizontal, 5).padding(.vertical, 2)
+                                    .background(selectedFilter == filter ? Color.white.opacity(0.25) : Color(.tertiaryLabel).opacity(0.15))
+                                    .clipShape(Capsule())
+                            }
+                        }
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(selectedFilter == filter ? .white : .secondary)
+                        .padding(.horizontal, 14).padding(.vertical, 7)
+                        .background(
+                            selectedFilter == filter
+                                ? AnyShapeStyle(DFGradients.accentHorizontal)
+                                : AnyShapeStyle(Color(.secondarySystemGroupedBackground))
+                        )
+                        .clipShape(Capsule())
+                    }
+                }
+            }
+            .padding(.horizontal, DFSpacing.lg).padding(.vertical, DFSpacing.sm)
+        }
+    }
+
     private var passesScrollView: some View {
         ScrollView {
-            VStack(spacing: DFSpacing.lg) {
-                // Active Passes
-                if !viewModel.activeTickets.isEmpty {
-                    passSection(
-                        title: "Active Passes",
-                        icon: "checkmark.shield.fill",
-                        iconColor: .green,
-                        tickets: viewModel.activeTickets
+            LazyVStack(spacing: DFSpacing.md) {
+                ForEach(Array(filteredTickets.enumerated()), id: \.element.id) { index, ticket in
+                    let isExpanded = expandedPassId == ticket.id
+                    PassCard(
+                        ticket: ticket,
+                        event: viewModel.event(for: ticket),
+                        ticketVM: ticketVM,
+                        isExpanded: isExpanded,
+                        onTap: {
+                            HapticManager.shared.selection()
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                if isExpanded {
+                                    expandedPassId = nil
+                                    restoreBrightness()
+                                } else {
+                                    expandedPassId = ticket.id
+                                    if ticket.isActive { boostBrightness() }
+                                }
+                            }
+                        }
                     )
-                }
-                
-                // Pending Passes
-                if !viewModel.pendingTickets.isEmpty {
-                    passSection(
-                        title: "Pending Activation",
-                        icon: "clock.fill",
-                        iconColor: .orange,
-                        tickets: viewModel.pendingTickets
-                    )
-                }
-                
-                // Expired Passes
-                if !viewModel.expiredTickets.isEmpty {
-                    passSection(
-                        title: "Expired",
-                        icon: "xmark.circle.fill",
-                        iconColor: .red,
-                        tickets: viewModel.expiredTickets
-                    )
+                    .entranceAnimation(index: index)
                 }
             }
             .padding(.horizontal, DFSpacing.lg)
             .padding(.top, DFSpacing.sm)
             .padding(.bottom, 100)
         }
+        .refreshable {
+            viewModel.stopListening()
+            viewModel.startListening()
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
     }
-    
-    // MARK: - Pass Section
-    
-    private func passSection(title: String, icon: String, iconColor: Color, tickets: [Ticket]) -> some View {
-        VStack(alignment: .leading, spacing: DFSpacing.md) {
-            DFSectionHeader(title: title, icon: icon, iconColor: iconColor)
-            
-            ForEach(Array(tickets.enumerated()), id: \.element.id) { index, ticket in
-                PassCard(
-                    ticket: ticket,
-                    event: viewModel.event(for: ticket),
-                    ticketVM: ticketVM
-                )
-                .entranceAnimation(index: index)
-            }
+
+    private func isEventOver(for ticket: Ticket) -> Bool {
+        guard let event = viewModel.event(for: ticket) else { return false }
+        if !event.isActive { return true }
+        if let endsAt = event.endsAt, endsAt.dateValue() <= Date() { return true }
+        return false
+    }
+
+    private var filteredTickets: [Ticket] {
+        switch selectedFilter {
+        case .all: return viewModel.tickets
+        case .active: return viewModel.tickets.filter { $0.status == .active && !isEventOver(for: $0) }
+        case .pending: return viewModel.tickets.filter { $0.status == .pending && !isEventOver(for: $0) }
+        case .expired: return viewModel.tickets.filter { $0.status == .expired || isEventOver(for: $0) }
+        }
+    }
+
+    private func ticketCount(for filter: PassFilter) -> Int {
+        switch filter {
+        case .all: return viewModel.tickets.count
+        case .active: return viewModel.tickets.filter { $0.status == .active && !isEventOver(for: $0) }.count
+        case .pending: return viewModel.tickets.filter { $0.status == .pending && !isEventOver(for: $0) }.count
+        case .expired: return viewModel.tickets.filter { $0.status == .expired || isEventOver(for: $0) }.count
+        }
+    }
+
+    private func boostBrightness() {
+        BrightnessManager.shared.boost()
+    }
+    private func restoreBrightness() {
+        BrightnessManager.shared.restore()
+    }
+}
+
+// MARK: - Brightness Manager
+
+final class BrightnessManager {
+    static let shared = BrightnessManager()
+    private var savedBrightness: CGFloat?
+
+    func boost() {
+        if savedBrightness == nil {
+            savedBrightness = UIScreen.main.brightness
+        }
+        UIScreen.main.brightness = 1.0
+    }
+
+    func restore() {
+        if let saved = savedBrightness {
+            UIScreen.main.brightness = saved
+            savedBrightness = nil
         }
     }
 }
 
 
-// MARK: - Pass Card
+// MARK: - Pass Card (Collapsible with event info)
 
 struct PassCard: View {
     let ticket: Ticket
     let event: Event?
     @ObservedObject var ticketVM: TicketViewModel
+    let isExpanded: Bool
+    let onTap: () -> Void
+
     @State private var showActivateConfirm = false
-    @State private var pulseAnimation = false
-    @State private var cardAppeared = false
-    
-    var statusColor: Color {
+
+    private var statusColor: Color {
         switch ticket.status {
         case .active: return .green
         case .pending: return .orange
         case .expired: return .red
         }
     }
-    
+
+    private var isEventExpired: Bool {
+        if let event = event, !event.isActive { return true }
+        guard let endsAt = event?.endsAt else { return false }
+        return endsAt.dateValue() <= Date()
+    }
+
+    /// Effective status: treats active tickets as expired if event ended/deactivated
+    private var effectivelyExpired: Bool {
+        ticket.isExpired || (isEventExpired && !ticket.isExpired)
+    }
+
+    private var effectiveStatusColor: Color {
+        if effectivelyExpired { return .red }
+        return statusColor
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            // Top Section
-            topSection
-            
-            // Dashed Divider
-            dashedDivider
-            
-            // Bottom Section
-            bottomSection
-        }
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.xxl, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: DFCornerRadius.xxl, style: .continuous)
-                .stroke(statusColor.opacity(0.2), lineWidth: 1.5)
-        )
-        .shadow(color: statusColor.opacity(0.1), radius: 16, y: 8)
-        .scaleEffect(cardAppeared ? 1.0 : 0.95)
-        .opacity(cardAppeared ? 1.0 : 0)
-        .onAppear {
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                cardAppeared = true
+            compactHeader
+            if isExpanded {
+                dashedDivider
+                expandedContent
             }
         }
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.xl, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: DFCornerRadius.xl, style: .continuous)
+                .stroke(effectiveStatusColor.opacity(isExpanded ? 0.25 : 0.1), lineWidth: 1.5)
+        )
+        .shadow(color: statusColor.opacity(0.06), radius: 8, y: 4)
+        .opacity(ticket.isExpired || effectivelyExpired ? 0.7 : 1.0)
+        .contentShape(Rectangle())
+        .onTapGesture { onTap() }
         .confirmationDialog("Activate Pass", isPresented: $showActivateConfirm, titleVisibility: .visible) {
             Button("Activate Now (Face ID)") {
                 Task {
-                    if let ticketId = ticket.id {
-                        await ticketVM.activateTicket(ticketId)
+                    if let id = ticket.id {
+                        await ticketVM.activateTicket(id)
                         if ticketVM.activationSuccess { HapticManager.shared.success() }
                     }
                 }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This will verify your biometrics and location to activate your event pass.")
+            Text("Verify biometrics and location to activate.")
         }
         .alert("Error", isPresented: $ticketVM.showError) {
             Button("OK") {}
-        } message: {
-            Text(ticketVM.errorMessage ?? "")
-        }
+        } message: { Text(ticketVM.errorMessage ?? "") }
     }
-    
-    // MARK: - Top Section
-    
-    private var topSection: some View {
-        VStack(alignment: .leading, spacing: DFSpacing.md) {
-            // Header
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(event?.title ?? "Event")
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                        .foregroundColor(.primary)
-                    
-                    if let description = event?.description, !description.isEmpty {
-                        Text(description)
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
+
+    // MARK: - Compact Header
+
+    private var compactHeader: some View {
+        HStack(spacing: DFSpacing.md) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(effectiveStatusColor.opacity(0.12))
+                    .frame(width: 42, height: 42)
+                Image(systemName: effectivelyExpired ? "xmark.circle.fill" : ticket.isActive ? "checkmark.seal.fill" : ticket.isPending ? "clock.fill" : "xmark.circle.fill")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(effectiveStatusColor)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(event?.title ?? "Event")
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    if effectivelyExpired && !ticket.isExpired {
+                        Text("Event Ended")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.red)
+                    } else {
+                        Text(ticket.statusDisplayText)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(statusColor)
+                    }
+                    if ticket.insideFence && ticket.isActive && !isEventExpired {
+                        Label("Inside", systemImage: "location.fill")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.dfAccent)
                     }
                 }
-                
-                Spacer()
-                
-                DFStatusBadge(text: ticket.statusDisplayText, color: statusColor, size: .medium)
             }
-            
-            // Status Indicators
-            HStack(spacing: DFSpacing.lg) {
-                if ticket.biometricVerified {
-                    StatusIndicator(icon: "faceid", text: "Verified", color: .green)
-                }
-                
-                if ticket.insideFence {
-                    StatusIndicator(icon: "location.fill", text: "Inside Zone", color: .dfAccent)
-                }
+            Spacer()
+            if let code = ticket.entryCode, ticket.isActive, !isEventExpired {
+                Text(code)
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundColor(.dfAccent)
+                    .padding(.horizontal, 8).padding(.vertical, 5)
+                    .background(Color.dfAccent.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
             }
+            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(Color(.tertiaryLabel))
         }
-        .padding(DFSpacing.xl)
+        .padding(DFSpacing.lg)
     }
-    
-    // MARK: - Dashed Divider
-    
+
     private var dashedDivider: some View {
         HStack(spacing: 0) {
-            // Left notch
-            Circle()
-                .fill(Color(.systemGroupedBackground))
-                .frame(width: 24, height: 24)
-                .offset(x: -12)
-            
-            // Dashed line
+            Circle().fill(Color(.systemGroupedBackground)).frame(width: 22, height: 22).offset(x: -11)
             GeometryReader { geo in
-                Path { path in
-                    path.move(to: CGPoint(x: 0, y: geo.size.height / 2))
-                    path.addLine(to: CGPoint(x: geo.size.width, y: geo.size.height / 2))
+                Path { p in
+                    p.move(to: CGPoint(x: 0, y: geo.size.height / 2))
+                    p.addLine(to: CGPoint(x: geo.size.width, y: geo.size.height / 2))
                 }
-                .stroke(style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
-                .foregroundColor(Color(.separator))
+                .stroke(style: StrokeStyle(lineWidth: 1.2, dash: [5, 3]))
+                .foregroundColor(Color(.separator).opacity(0.5))
             }
-            .frame(height: 24)
-            
-            // Right notch
-            Circle()
-                .fill(Color(.systemGroupedBackground))
-                .frame(width: 24, height: 24)
-                .offset(x: 12)
+            .frame(height: 22)
+            Circle().fill(Color(.systemGroupedBackground)).frame(width: 22, height: 22).offset(x: 11)
         }
     }
 
-    // MARK: - Bottom Section
-    
-    private var bottomSection: some View {
+    // MARK: - Expanded Content
+
+    private var expandedContent: some View {
         VStack(spacing: DFSpacing.lg) {
-            if ticket.isActive {
-                // QR Code Display
-                VStack(spacing: 16) {
-                    // Real QR Code
-                    if let qrToken = ticket.qrToken {
-                        VStack(spacing: 12) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .fill(Color.white)
-                                    .frame(width: 180, height: 180)
-                                    .shadow(color: .black.opacity(0.1), radius: 12, y: 6)
-                                
-                                QRCodeView(token: qrToken, size: 160)
-                            }
-                            .scaleEffect(pulseAnimation ? 1.02 : 1.0)
-                            .animation(.easeInOut(duration: 2).repeatForever(autoreverses: true), value: pulseAnimation)
-                            .onAppear { pulseAnimation = true }
-                            
-                            Text("SCAN TO ENTER")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(Color(.tertiaryLabel))
-                                .tracking(2)
-                        }
-                    }
-                    
-                    // Entry Code (if available)
-                    if let entryCode = ticket.entryCode {
-                        VStack(spacing: 6) {
-                            Text("ENTRY CODE")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(Color(.tertiaryLabel))
-                                .tracking(2)
-                            
-                            Text(entryCode)
-                                .font(.system(size: 36, weight: .bold, design: .monospaced))
-                                .foregroundColor(.dfAccent)
-                        }
-                        .padding(.top, 8)
-                    }
-                    
-                    // Scanned indicator
-                    if ticket.qrScanned == true {
-                        HStack(spacing: 6) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 14))
-                            Text("Entry Verified")
-                                .font(.system(size: 13, weight: .medium))
-                        }
-                        .foregroundColor(.green)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Color.green.opacity(0.12))
-                        .clipShape(Capsule())
-                    } else {
-                        Text("Show this QR code at entry")
-                            .font(.system(size: 13))
-                            .foregroundColor(.secondary)
-                    }
+            // Event info
+            eventInfoSection
+
+            // Status indicators
+            HStack(spacing: DFSpacing.md) {
+                if ticket.biometricVerified && !isEventExpired {
+                    StatusIndicator(icon: "faceid", text: "Verified", color: .green)
                 }
+                if ticket.insideFence && ticket.isActive && !isEventExpired {
+                    StatusIndicator(icon: "location.fill", text: "Inside Zone", color: .dfAccent)
+                }
+                if isEventExpired {
+                    StatusIndicator(icon: "clock.badge.xmark", text: "Event Ended", color: .red)
+                }
+            }
+
+            if isEventExpired {
+                // Event is over — show expired state regardless of ticket status
+                eventExpiredContent
+            } else if ticket.isActive {
+                activeContent
             } else if ticket.isPending {
-                // Activate Button
-                VStack(spacing: DFSpacing.lg) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.orange.opacity(0.1))
-                            .frame(width: 80, height: 80)
-                        
-                        Image(systemName: "faceid")
-                            .font(.system(size: 36, weight: .light))
-                            .foregroundColor(.orange)
-                    }
-                    
-                    VStack(spacing: 4) {
-                        Text("Ready to activate?")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.primary)
-                        
-                        Text("Verify your identity to unlock this pass")
-                            .font(.system(size: 13))
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    DFPrimaryButton(
-                        title: "Activate with Face ID",
-                        icon: "faceid",
-                        isLoading: ticketVM.isActivating,
-                        colors: [.orange, .yellow],
-                        height: 50
-                    ) {
-                        showActivateConfirm = true
-                    }
-                }
-            } else if ticket.isExpired {
-                // Expired Message
-                VStack(spacing: 12) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.red.opacity(0.1))
-                            .frame(width: 70, height: 70)
-                        
-                        Image(systemName: "clock.badge.xmark")
-                            .font(.system(size: 32, weight: .light))
-                            .foregroundColor(.red.opacity(0.7))
-                    }
-                    
-                    Text("This pass has expired")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(Color(.tertiaryLabel))
+                pendingContent
+            } else {
+                expiredContent
+            }
+        }
+        .padding(.horizontal, DFSpacing.xl)
+        .padding(.bottom, DFSpacing.xl)
+        .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    private var eventInfoSection: some View {
+        VStack(spacing: DFSpacing.sm) {
+            if let startsAt = event?.startsAt, let endsAt = event?.endsAt {
+                HStack(spacing: 6) {
+                    Image(systemName: "calendar").font(.system(size: 11)).foregroundColor(.blue)
+                    Text(startsAt.dateValue().formatted(date: .abbreviated, time: .shortened))
+                        .font(.system(size: 12, weight: .medium)).foregroundColor(.secondary)
+                    Text("→").font(.system(size: 10)).foregroundColor(Color(.tertiaryLabel))
+                    Text(endsAt.dateValue().formatted(date: .abbreviated, time: .shortened))
+                        .font(.system(size: 12, weight: .medium)).foregroundColor(.secondary)
                 }
             }
         }
-        .padding(DFSpacing.xl)
+    }
+
+    private var activeContent: some View {
+        VStack(spacing: DFSpacing.lg) {
+            // Show "Entry Verified" if admin scanned, otherwise show "Awaiting Check-In"
+            if ticket.qrScanned == true {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.seal.fill").font(.system(size: 14))
+                    Text("Entry Verified by Admin").font(.system(size: 13, weight: .semibold))
+                }
+                .foregroundColor(.green)
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(Color.green.opacity(0.1))
+                .clipShape(Capsule())
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "clock.badge.checkmark").font(.system(size: 14))
+                    Text("Awaiting Check-In").font(.system(size: 13, weight: .semibold))
+                }
+                .foregroundColor(.orange)
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(Color.orange.opacity(0.1))
+                .clipShape(Capsule())
+            }
+
+            if let qrToken = ticket.qrToken {
+                // Large stable QR
+                VStack(spacing: DFSpacing.md) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color.white)
+                            .frame(width: 220, height: 220)
+                            .shadow(color: .black.opacity(0.1), radius: 12, y: 6)
+                        QRCodeView(token: qrToken, size: 200)
+                    }
+                    Text("SCAN TO ENTER")
+                        .font(.system(size: 9, weight: .bold)).foregroundColor(Color(.tertiaryLabel)).tracking(2)
+                }
+            }
+
+            if let code = ticket.entryCode {
+                VStack(spacing: 4) {
+                    Text("ENTRY CODE").font(.system(size: 9, weight: .bold)).foregroundColor(Color(.tertiaryLabel)).tracking(2)
+                    Text(code).font(.system(size: 34, weight: .bold, design: .monospaced)).foregroundColor(.dfAccent)
+                }
+            }
+        }
+    }
+
+    private var pendingContent: some View {
+        VStack(spacing: DFSpacing.lg) {
+            DFIconBadge(icon: "faceid", color: .orange, size: 64, iconSize: 30)
+            VStack(spacing: 3) {
+                Text("Ready to activate?").font(.system(size: 15, weight: .semibold))
+                Text("Verify identity to unlock this pass").font(.system(size: 12)).foregroundColor(.secondary)
+            }
+            DFPrimaryButton(title: "Activate with Face ID", icon: "faceid",
+                isLoading: ticketVM.isActivating, colors: [.orange, .yellow], height: 48
+            ) { showActivateConfirm = true }
+        }
+    }
+
+    private var expiredContent: some View {
+        VStack(spacing: 10) {
+            DFIconBadge(icon: "clock.badge.xmark", color: .red, size: 56, iconSize: 26)
+            Text("This pass has expired").font(.system(size: 14, weight: .medium)).foregroundColor(Color(.tertiaryLabel))
+        }
+    }
+
+    private var eventExpiredContent: some View {
+        VStack(spacing: 10) {
+            DFIconBadge(icon: "calendar.badge.exclamationmark", color: .red, size: 56, iconSize: 26)
+            Text("Event has ended").font(.system(size: 14, weight: .medium)).foregroundColor(Color(.tertiaryLabel))
+            Text("Your pass and entry code are no longer valid").font(.system(size: 12)).foregroundColor(Color(.quaternaryLabel))
+        }
     }
 }
 
 // MARK: - Status Indicator
 
 struct StatusIndicator: View {
-    let icon: String
-    let text: String
-    var color: Color = .dfAccent
-    
+    let icon: String; let text: String; var color: Color = .dfAccent
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(.system(size: 12, weight: .medium))
-            Text(text)
-                .font(.system(size: 12, weight: .medium))
+        HStack(spacing: 5) {
+            Image(systemName: icon).font(.system(size: 11, weight: .medium))
+            Text(text).font(.system(size: 11, weight: .medium))
         }
-        .foregroundColor(color)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(color.opacity(0.12))
-        .clipShape(Capsule())
+        .foregroundColor(color).padding(.horizontal, 9).padding(.vertical, 5)
+        .background(color.opacity(0.1)).clipShape(Capsule())
     }
 }

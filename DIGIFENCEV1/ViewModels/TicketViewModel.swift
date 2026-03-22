@@ -72,6 +72,8 @@ final class TicketViewModel: ObservableObject {
             
             let docRef = try await firebase.ticketsCollection.addDocument(data: ticketData)
             
+            // ticketsSold is incremented server-side by the onTicketCreated trigger
+            
             // Start monitoring this event's geofence
             locationManager.startPolygonMonitoring(for: event, ticketId: docRef.documentID)
             
