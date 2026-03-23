@@ -11,6 +11,7 @@ const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging");
+const { getAuth } = require("firebase-admin/auth");
 const crypto = require("crypto");
 const nodemailer = require("nodemailer");
 
@@ -880,3 +881,232 @@ exports._testHelpers = {
   generateEntryCode,
   getMinutesSinceExit,
 };
+
+// ─── Helper: require admin role ─────────────────────────────────────────────
+
+async function requireAdmin(uid) {
+  const userSnap = await db.collection("users").doc(uid).get();
+  if (!userSnap.exists || userSnap.data().role !== "admin") {
+    throw new HttpsError("permission-denied", "Only admins can perform this action.");
+  }
+  return userSnap.data();
+}
+
+// ─── createSecurityPersonnel ────────────────────────────────────────────────
+
+/**
+ * Admin-only: Create a security personnel account.
+ * Creates Firebase Auth user + Firestore user doc with role: "security".
+ * Auto-generates a strong temporary password and returns it.
+ */
+exports.createSecurityPersonnel = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Authentication required.");
+  }
+  const adminUid = request.auth.uid;
+  await requireAdmin(adminUid);
+
+  const { email, name, password, assignedEventId } = request.data;
+
+  if (!email || !name) {
+    throw new HttpsError("invalid-argument", "email and name are required.");
+  }
+  if (!password || password.length < 6) {
+    throw new HttpsError("invalid-argument", "Password must be at least 6 characters.");
+  }
+
+  try {
+    // Create Firebase Auth user with admin-provided password
+    const userRecord = await getAuth().createUser({
+      email: email.toLowerCase().trim(),
+      password: password,
+      displayName: name,
+      emailVerified: true, // Security accounts skip email verification
+    });
+
+    // Create Firestore user document with security role
+    await db.collection("users").doc(userRecord.uid).set({
+      email: email.toLowerCase().trim(),
+      displayName: name,
+      role: "security",
+      publicKey: null,
+      deviceId: null,
+      fcmToken: null,
+      assignedEventId: assignedEventId || null,
+      createdByAdminId: adminUid,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    console.log(`Security personnel created: ${email} by admin ${adminUid}`);
+
+    return {
+      success: true,
+      uid: userRecord.uid,
+      email: email.toLowerCase().trim(),
+      name,
+    };
+  } catch (err) {
+    if (err.code === "auth/email-already-exists") {
+      throw new HttpsError(
+        "already-exists",
+        `An account with email "${email}" already exists.`
+      );
+    }
+    console.error("createSecurityPersonnel error:", err.message);
+    throw new HttpsError("internal", `Failed to create security account: ${err.message}`);
+  }
+});
+
+// ─── listSecurityPersonnel ──────────────────────────────────────────────────
+
+/**
+ * Admin-only: List all security personnel created by this admin.
+ */
+exports.listSecurityPersonnel = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Authentication required.");
+  }
+  const adminUid = request.auth.uid;
+  await requireAdmin(adminUid);
+
+  const snapshot = await db
+    .collection("users")
+    .where("role", "==", "security")
+    .where("createdByAdminId", "==", adminUid)
+    .get();
+
+  const personnel = snapshot.docs.map((doc) => ({
+    uid: doc.id,
+    email: doc.data().email,
+    name: doc.data().displayName,
+    assignedEventId: doc.data().assignedEventId || null,
+    createdAt: doc.data().createdAt,
+  }));
+
+  return { success: true, personnel };
+});
+
+// ─── removeSecurityPersonnel ────────────────────────────────────────────────
+
+/**
+ * Admin-only: Remove a security personnel account.
+ * Disables Firebase Auth account and deletes Firestore user doc.
+ */
+exports.removeSecurityPersonnel = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Authentication required.");
+  }
+  const adminUid = request.auth.uid;
+  await requireAdmin(adminUid);
+
+  const { securityUid } = request.data;
+  if (!securityUid) {
+    throw new HttpsError("invalid-argument", "securityUid is required.");
+  }
+
+  // Verify this security person was created by this admin
+  const secUserSnap = await db.collection("users").doc(securityUid).get();
+  if (!secUserSnap.exists || secUserSnap.data().role !== "security") {
+    throw new HttpsError("not-found", "Security personnel not found.");
+  }
+  if (secUserSnap.data().createdByAdminId !== adminUid) {
+    throw new HttpsError("permission-denied", "You can only remove security personnel you created.");
+  }
+
+  // Disable Firebase Auth account and delete Firestore doc
+  try {
+    await getAuth().deleteUser(securityUid);
+  } catch (err) {
+    console.warn("Failed to delete auth user (may not exist):", err.message);
+  }
+  await db.collection("users").doc(securityUid).delete();
+
+  console.log(`Security personnel ${securityUid} removed by admin ${adminUid}`);
+  return { success: true };
+});
+
+// ─── resetSecurityPassword ──────────────────────────────────────────────────
+
+/**
+ * Admin-only: Reset a security person's password.
+ * Generates new password and returns it.
+ */
+exports.resetSecurityPassword = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Authentication required.");
+  }
+  const adminUid = request.auth.uid;
+  await requireAdmin(adminUid);
+
+  const { securityUid } = request.data;
+  if (!securityUid) {
+    throw new HttpsError("invalid-argument", "securityUid is required.");
+  }
+
+  // Verify ownership
+  const secUserSnap = await db.collection("users").doc(securityUid).get();
+  if (!secUserSnap.exists || secUserSnap.data().role !== "security") {
+    throw new HttpsError("not-found", "Security personnel not found.");
+  }
+  if (secUserSnap.data().createdByAdminId !== adminUid) {
+    throw new HttpsError("permission-denied", "You can only reset passwords for security personnel you created.");
+  }
+
+  const newPassword = crypto.randomBytes(12).toString("base64url").slice(0, 16);
+
+  await getAuth().updateUser(securityUid, { password: newPassword });
+
+  console.log(`Password reset for security ${securityUid} by admin ${adminUid}`);
+  return { success: true, newPassword };
+});
+
+// ─── seedDefaultSecurity ────────────────────────────────────────────────────
+
+/**
+ * One-time seed: creates the default test security account.
+ * Call via: firebase functions:call seedDefaultSecurity
+ */
+exports.seedDefaultSecurity = onCall(async (request) => {
+  const email = "utkarshnayan1146@gmail.com";
+  const password = "1234567890";
+  const name = "Security Test";
+
+  try {
+    // Check if account already exists
+    let userRecord;
+    try {
+      userRecord = await getAuth().getUserByEmail(email);
+      console.log(`Security test account already exists: ${userRecord.uid}`);
+    } catch (err) {
+      if (err.code === "auth/user-not-found") {
+        userRecord = await getAuth().createUser({
+          email,
+          password,
+          displayName: name,
+          emailVerified: true,
+        });
+        console.log(`Security test account created: ${userRecord.uid}`);
+      } else {
+        throw err;
+      }
+    }
+
+    // Upsert Firestore doc
+    await db.collection("users").doc(userRecord.uid).set({
+      email,
+      displayName: name,
+      role: "security",
+      publicKey: null,
+      deviceId: null,
+      fcmToken: null,
+      assignedEventId: null,
+      createdByAdminId: null,
+      createdAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    return { success: true, uid: userRecord.uid, email, password };
+  } catch (err) {
+    console.error("seedDefaultSecurity error:", err.message);
+    throw new HttpsError("internal", err.message);
+  }
+});

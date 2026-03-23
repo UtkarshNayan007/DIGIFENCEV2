@@ -17,6 +17,8 @@ struct MainTabView: View {
         Group {
             if firebase.appUser?.isAdmin == true {
                 AdminTabView(selectedTab: $selectedTab)
+            } else if firebase.appUser?.isSecurity == true {
+                SecurityTabView(selectedTab: $selectedTab)
             } else {
                 UserTabView(selectedTab: $selectedTab)
             }
@@ -45,7 +47,7 @@ struct UserTabView: View {
     }
 }
 
-// MARK: - Admin Tabs (3 tabs: Home, Events, Check-In)
+// MARK: - Admin Tabs (3 tabs: Home, Events, Team)
 
 struct AdminTabView: View {
     @Binding var selectedTab: Int
@@ -57,9 +59,25 @@ struct AdminTabView: View {
             NavigationStack { AdminEventsView() }
                 .tabItem { Label("Events", systemImage: selectedTab == 1 ? "calendar.badge.plus" : "calendar") }
                 .tag(1)
-            NavigationStack { QRScannerView() }
-                .tabItem { Label("Check-In", systemImage: selectedTab == 2 ? "qrcode.viewfinder" : "qrcode") }
+            NavigationStack { SecurityTeamView() }
+                .tabItem { Label("Team", systemImage: selectedTab == 2 ? "shield.lefthalf.filled" : "shield") }
                 .tag(2)
+        }
+    }
+}
+
+// MARK: - Security Tabs (single Check-In tab)
+
+struct SecurityTabView: View {
+    @Binding var selectedTab: Int
+    var body: some View {
+        TabView(selection: $selectedTab) {
+            NavigationStack { QRScannerView() }
+                .tabItem { Label("Check-In", systemImage: selectedTab == 0 ? "qrcode.viewfinder" : "qrcode") }
+                .tag(0)
+            NavigationStack { SecurityProfileView() }
+                .tabItem { Label("Profile", systemImage: selectedTab == 1 ? "person.fill" : "person") }
+                .tag(1)
         }
     }
 }

@@ -200,12 +200,13 @@ final class QRScannerViewModel: NSObject, ObservableObject {
             )
         }
         
-        // 3. Verify the scanning admin is the event organizer
+        // 3. Verify the scanner is authorized (organizer or assigned security)
         let currentUid = Auth.auth().currentUser?.uid
-        guard let currentUid = currentUid, event.organizerId == currentUid else {
+        let isAuthorized = await isAuthorizedForCheckIn(uid: currentUid, event: event)
+        guard isAuthorized else {
             return ScanResult(
                 isValid: false,
-                message: "Access Denied: You are not the organizer of this event.",
+                message: "Access Denied: You are not authorized to check in for this event.",
                 eventTitle: event.title,
                 entryCode: ticket.entryCode,
                 userName: nil
@@ -216,13 +217,18 @@ final class QRScannerViewModel: NSObject, ObservableObject {
         let userDoc = try await firebase.usersCollection.document(ticket.ownerId).getDocument()
         let user = try? userDoc.data(as: AppUser.self)
         
-        // Mark as scanned with check-in time
-        try await firebase.ticketsCollection.document(doc.documentID).updateData([
+        // Mark as scanned with check-in time and scanner ID
+        var updatePayload: [String: Any] = [
             "qrScanned": true,
             "scannedAt": FieldValue.serverTimestamp(),
             "checkInTime": FieldValue.serverTimestamp(),
             "insideFence": true
-        ])
+        ]
+        if let currentUid = currentUid {
+            updatePayload["scannedBy"] = currentUid
+        }
+        
+        try await firebase.ticketsCollection.document(doc.documentID).updateData(updatePayload)
         
         return ScanResult(
             isValid: true,
@@ -312,12 +318,13 @@ final class QRScannerViewModel: NSObject, ObservableObject {
             )
         }
         
-        // 3. Verify the scanning admin is the event organizer
+        // 3. Verify the scanner is authorized (organizer or assigned security)
         let currentUid2 = Auth.auth().currentUser?.uid
-        guard let currentUid = currentUid2, event.organizerId == currentUid else {
+        let isAuthorized2 = await isAuthorizedForCheckIn(uid: currentUid2, event: event)
+        guard isAuthorized2 else {
             return ScanResult(
                 isValid: false,
-                message: "Access Denied: You are not the organizer of this event.",
+                message: "Access Denied: You are not authorized to check in for this event.",
                 eventTitle: event.title,
                 entryCode: ticket.entryCode,
                 userName: nil
@@ -328,13 +335,18 @@ final class QRScannerViewModel: NSObject, ObservableObject {
         let userDoc = try await firebase.usersCollection.document(ticket.ownerId).getDocument()
         let user = try? userDoc.data(as: AppUser.self)
         
-        // Mark as scanned with check-in time
-        try await firebase.ticketsCollection.document(doc.documentID).updateData([
+        // Mark as scanned with check-in time and scanner ID
+        var updatePayload: [String: Any] = [
             "qrScanned": true,
             "scannedAt": FieldValue.serverTimestamp(),
             "checkInTime": FieldValue.serverTimestamp(),
             "insideFence": true
-        ])
+        ]
+        if let currentUid = currentUid2 {
+            updatePayload["scannedBy"] = currentUid
+        }
+        
+        try await firebase.ticketsCollection.document(doc.documentID).updateData(updatePayload)
         
         return ScanResult(
             isValid: true,
@@ -343,6 +355,31 @@ final class QRScannerViewModel: NSObject, ObservableObject {
             entryCode: ticket.entryCode,
             userName: user?.displayName
         )
+    }
+
+    // MARK: - Authorization Helper
+
+    /// Check if current user is allowed to perform check-in for this event.
+    /// Allowed: event organizer (admin) OR security personnel assigned to this event.
+    private func isAuthorizedForCheckIn(uid: String?, event: Event) async -> Bool {
+        guard let uid = uid else { return false }
+
+        // Admin organizer
+        if event.organizerId == uid { return true }
+
+        // Security assigned to this event
+        do {
+            let userDoc = try await firebase.usersCollection.document(uid).getDocument()
+            guard let data = userDoc.data() else { return false }
+            let role = data["role"] as? String
+            let assignedEventId = data["assignedEventId"] as? String
+            if role == "security" && assignedEventId == event.id {
+                return true
+            }
+        } catch {
+            print("❌ Failed to check authorization: \(error.localizedDescription)")
+        }
+        return false
     }
 }
 

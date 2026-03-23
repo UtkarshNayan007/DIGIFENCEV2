@@ -120,7 +120,19 @@ final class AuthViewModel: ObservableObject {
                 return
             }
             
-            // Step 3: Biometric MFA
+            // Step 3: Check if security personnel (skip biometric MFA)
+            let userDoc = try await firebase.usersCollection.document(result.user.uid).getDocument()
+            let userRole = userDoc.data()?["role"] as? String ?? "user"
+            
+            if userRole == "security" {
+                // Security personnel — skip biometric MFA and key generation
+                firebase.isBiometricAuthenticated = true
+                Task { await PushManager.shared.requestPermission() }
+                isLoading = false
+                return
+            }
+            
+            // Step 4: Biometric MFA (for admin and user roles)
             let biometricPassed = await performBiometricMFA()
             guard biometricPassed else {
                 // Biometric failed — sign out
@@ -129,15 +141,15 @@ final class AuthViewModel: ObservableObject {
                 return
             }
             
-            // Step 4: Mark biometric authenticated
+            // Step 5: Mark biometric authenticated
             firebase.isBiometricAuthenticated = true
             
-            // Step 5: Generate Secure Enclave key if needed
+            // Step 6: Generate Secure Enclave key if needed
             if !secureEnclave.hasExistingKey() {
                 await generateAndUploadKey()
             }
             
-            // Step 6: Request push notification permission
+            // Step 7: Request push notification permission
             Task { await PushManager.shared.requestPermission() }
             
         } catch {

@@ -20,6 +20,7 @@ struct Ticket: Codable, Identifiable {
     var qrToken: String?
     var qrScanned: Bool?
     var scannedAt: Timestamp?
+    var scannedBy: String?
     @ServerTimestamp var createdAt: Timestamp?
     
     enum TicketStatus: String, Codable {
@@ -61,6 +62,7 @@ struct Ticket: Codable, Identifiable {
         qrToken: String? = nil,
         qrScanned: Bool? = nil,
         scannedAt: Timestamp? = nil,
+        scannedBy: String? = nil,
         createdAt: Timestamp? = nil
     ) {
         self.eventId = eventId
@@ -73,5 +75,6 @@ struct Ticket: Codable, Identifiable {
         self.qrToken = qrToken
         self.qrScanned = qrScanned
         self.scannedAt = scannedAt
+        self.scannedBy = scannedBy
     }
 }

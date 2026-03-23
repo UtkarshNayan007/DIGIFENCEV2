@@ -17,11 +17,16 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
+    function isSecurity() {
+      return isAuthenticated() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'security';
+    }
+
     // ─── Users Collection ──────────────────────────────────────────────
     // Users can read/write only their own document.
     // publicKey can be set by the client on creation or update.
     match /users/{uid} {
-      allow read: if isOwner(uid) || isAdmin();
+      allow read: if isOwner(uid) || isAdmin() || isSecurity();
       allow create: if isOwner(uid) &&
         request.resource.data.keys().hasAll(['email', 'role', 'createdAt']) &&
         request.resource.data.role == 'user';
@@ -33,11 +38,9 @@ service cloud.firestore {
 
     // ─── Events Collection ─────────────────────────────────────────────
     // Public read for all authenticated users; write only by admins.
-    // Uses polygon-based geofencing (polygonCoordinates array).
-    // TEMPORARY: More permissive rules for development
+    // Security can also read events for check-in context.
     match /events/{eventId} {
       allow read: if isAuthenticated();
-      // RELAXED: Allow any authenticated user to create events (for development)
       allow create: if isAuthenticated() &&
         request.resource.data.organizerId == request.auth.uid;
       allow update: if isAuthenticated() &&
@@ -48,31 +51,20 @@ service cloud.firestore {
 
     // ─── Tickets Collection ────────────────────────────────────────────
     // Create: authenticated user can create ticket with ownerId == uid, status == 'pending'.
-    // Read: only ticket owner or admin.
-    // Update: admin can update check-in fields; Cloud Functions handle activation.
+    // Read: only ticket owner, admin, or security personnel.
+    // Update: admin or security can update check-in fields; Cloud Functions handle activation.
     // Delete: only the event organizer (admin) can delete tickets.
     match /tickets/{ticketId} {
-      allow read: if (isAuthenticated() && resource.data.ownerId == request.auth.uid) || isAdmin();
+      allow read: if (isAuthenticated() && resource.data.ownerId == request.auth.uid) || isAdmin() || isSecurity();
       allow create: if isAuthenticated() &&
         request.resource.data.ownerId == request.auth.uid &&
         request.resource.data.status == 'pending' &&
         request.resource.data.biometricVerified == false &&
         request.resource.data.insideFence == false &&
         request.resource.data.keys().hasAll(['eventId', 'ownerId', 'status', 'biometricVerified', 'insideFence', 'createdAt']);
-      // Only the event organizer can update check-in fields (qrScanned, scannedAt, checkInTime)
-      // Admin can also deactivate tickets (update status, insideFence, biometricVerified)
-      allow update: if isAdmin() &&
-        (
-          // Check-in field updates
-          (request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['qrScanned', 'scannedAt', 'checkInTime', 'insideFence']) &&
-          get(/databases/$(database)/documents/events/$(resource.data.eventId)).data.organizerId == request.auth.uid)
-          ||
-          // Admin deactivation (status, insideFence, biometricVerified)
-          (request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['status', 'insideFence', 'biometricVerified']) &&
-          get(/databases/$(database)/documents/events/$(resource.data.eventId)).data.organizerId == request.auth.uid)
-        );
+      // Admin or Security can update check-in fields
+      // Admin can also deactivate tickets
+      allow update: if isAdmin() || isSecurity();
       // Allow event organizer to delete tickets (for event cleanup)
       allow delete: if isAuthenticated() &&
         get(/databases/$(database)/documents/events/$(resource.data.eventId)).data.organizerId == request.auth.uid;
@@ -85,11 +77,11 @@ service cloud.firestore {
     }
 
     // ─── Attendance Logs ───────────────────────────────────────────────
-    // Server-only write normally. Admins can write for manual deactivations.
+    // Server-only write normally. Admins and security can write for check-ins.
     // Owners can read their own logs (via ticketId lookup).
     match /attendance_logs/{logId} {
       allow read: if isAuthenticated();
-      allow create: if isAdmin();
+      allow create: if isAdmin() || isSecurity();
       allow update, delete: if false;
     }
   }

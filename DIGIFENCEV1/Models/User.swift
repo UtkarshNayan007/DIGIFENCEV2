@@ -17,18 +17,22 @@ struct AppUser: Codable, Identifiable {
     var publicKey: String?
     var deviceId: String?
     var fcmToken: String?
+    var assignedEventId: String?
+    var createdByAdminId: String?
     @ServerTimestamp var createdAt: Timestamp?
     
     var uid: String { id ?? "" }
     var isAdmin: Bool { role == .admin }
+    var isSecurity: Bool { role == .security }
     
     enum UserRole: String, Codable {
         case admin
         case user
+        case security
     }
     
     enum CodingKeys: String, CodingKey {
-        case id, email, displayName, phoneNumber, role, publicKey, deviceId, fcmToken, createdAt
+        case id, email, displayName, phoneNumber, role, publicKey, deviceId, fcmToken, assignedEventId, createdByAdminId, createdAt
     }
     
     init(from decoder: Decoder) throws {
@@ -41,6 +45,8 @@ struct AppUser: Codable, Identifiable {
         publicKey = try container.decodeIfPresent(String.self, forKey: .publicKey)
         deviceId = try container.decodeIfPresent(String.self, forKey: .deviceId)
         fcmToken = try container.decodeIfPresent(String.self, forKey: .fcmToken)
+        assignedEventId = try container.decodeIfPresent(String.self, forKey: .assignedEventId)
+        createdByAdminId = try container.decodeIfPresent(String.self, forKey: .createdByAdminId)
         _createdAt = try container.decodeIfPresent(ServerTimestamp<Timestamp>.self, forKey: .createdAt) ?? ServerTimestamp(wrappedValue: nil)
     }
     
