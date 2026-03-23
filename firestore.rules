@@ -65,7 +65,7 @@ service cloud.firestore {
         (
           // Check-in field updates
           (request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['qrScanned', 'scannedAt', 'checkInTime']) &&
+            .hasOnly(['qrScanned', 'scannedAt', 'checkInTime', 'insideFence']) &&
           get(/databases/$(database)/documents/events/$(resource.data.eventId)).data.organizerId == request.auth.uid)
           ||
           // Admin deactivation (status, insideFence, biometricVerified)

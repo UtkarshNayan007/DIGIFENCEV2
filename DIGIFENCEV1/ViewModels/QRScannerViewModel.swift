@@ -167,17 +167,46 @@ final class QRScannerViewModel: NSObject, ObservableObject {
         let eventDoc = try await firebase.eventsCollection.document(ticket.eventId).getDocument()
         let event = try? eventDoc.data(as: Event.self)
         
-        // Verify the scanning admin is the event organizer
-        let currentUid = Auth.auth().currentUser?.uid
-        print("🔐 [EntryCode] Current admin UID: \(currentUid ?? "nil")")
-        print("🔐 [EntryCode] Event organizerId: \(event?.organizerId ?? "nil")")
-        print("🔐 [EntryCode] Match: \(currentUid != nil && event?.organizerId == currentUid)")
-        
-        guard let event = event, let currentUid = currentUid, event.organizerId == currentUid else {
+        // 1. Verify event exists
+        guard let event = event else {
             return ScanResult(
                 isValid: false,
-                message: "You are not the organizer of this event. Only the event creator can verify check-ins.",
-                eventTitle: event?.title,
+                message: "Event not found for this ticket.",
+                eventTitle: nil,
+                entryCode: ticket.entryCode,
+                userName: nil
+            )
+        }
+        
+        // 2. Verify event is active and not ended
+        let now = Date()
+        if !event.isActive {
+            return ScanResult(
+                isValid: false,
+                message: "Event \"\(event.title)\" is currently inactive (disabled by admin).",
+                eventTitle: event.title,
+                entryCode: ticket.entryCode,
+                userName: nil
+            )
+        }
+        
+        if let endsAt = event.endsAt?.dateValue(), endsAt <= now {
+            return ScanResult(
+                isValid: false,
+                message: "Event \"\(event.title)\" has already ended.",
+                eventTitle: event.title,
+                entryCode: ticket.entryCode,
+                userName: nil
+            )
+        }
+        
+        // 3. Verify the scanning admin is the event organizer
+        let currentUid = Auth.auth().currentUser?.uid
+        guard let currentUid = currentUid, event.organizerId == currentUid else {
+            return ScanResult(
+                isValid: false,
+                message: "Access Denied: You are not the organizer of this event.",
+                eventTitle: event.title,
                 entryCode: ticket.entryCode,
                 userName: nil
             )
@@ -191,7 +220,8 @@ final class QRScannerViewModel: NSObject, ObservableObject {
         try await firebase.ticketsCollection.document(doc.documentID).updateData([
             "qrScanned": true,
             "scannedAt": FieldValue.serverTimestamp(),
-            "checkInTime": FieldValue.serverTimestamp()
+            "checkInTime": FieldValue.serverTimestamp(),
+            "insideFence": true
         ])
         
         return ScanResult(
@@ -249,17 +279,46 @@ final class QRScannerViewModel: NSObject, ObservableObject {
         let eventDoc = try await firebase.eventsCollection.document(ticket.eventId).getDocument()
         let event = try? eventDoc.data(as: Event.self)
         
-        // Verify the scanning admin is the event organizer
-        let currentUid2 = Auth.auth().currentUser?.uid
-        print("🔐 [QRToken] Current admin UID: \(currentUid2 ?? "nil")")
-        print("🔐 [QRToken] Event organizerId: \(event?.organizerId ?? "nil")")
-        print("🔐 [QRToken] Match: \(currentUid2 != nil && event?.organizerId == currentUid2)")
-        
-        guard let event = event, let currentUid = currentUid2, event.organizerId == currentUid else {
+        // 1. Verify event exists
+        guard let event = event else {
             return ScanResult(
                 isValid: false,
-                message: "You are not the organizer of this event. Only the event creator can verify check-ins.",
-                eventTitle: event?.title,
+                message: "Event not found for this ticket.",
+                eventTitle: nil,
+                entryCode: ticket.entryCode,
+                userName: nil
+            )
+        }
+        
+        // 2. Verify event is active and not ended
+        let now = Date()
+        if !event.isActive {
+            return ScanResult(
+                isValid: false,
+                message: "Event \"\(event.title)\" is inactive.",
+                eventTitle: event.title,
+                entryCode: ticket.entryCode,
+                userName: nil
+            )
+        }
+        
+        if let endsAt = event.endsAt?.dateValue(), endsAt <= now {
+            return ScanResult(
+                isValid: false,
+                message: "Event \"\(event.title)\" has already ended.",
+                eventTitle: event.title,
+                entryCode: ticket.entryCode,
+                userName: nil
+            )
+        }
+        
+        // 3. Verify the scanning admin is the event organizer
+        let currentUid2 = Auth.auth().currentUser?.uid
+        guard let currentUid = currentUid2, event.organizerId == currentUid else {
+            return ScanResult(
+                isValid: false,
+                message: "Access Denied: You are not the organizer of this event.",
+                eventTitle: event.title,
                 entryCode: ticket.entryCode,
                 userName: nil
             )
@@ -273,7 +332,8 @@ final class QRScannerViewModel: NSObject, ObservableObject {
         try await firebase.ticketsCollection.document(doc.documentID).updateData([
             "qrScanned": true,
             "scannedAt": FieldValue.serverTimestamp(),
-            "checkInTime": FieldValue.serverTimestamp()
+            "checkInTime": FieldValue.serverTimestamp(),
+            "insideFence": true
         ])
         
         return ScanResult(

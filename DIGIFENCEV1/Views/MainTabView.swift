@@ -57,7 +57,7 @@ struct AdminTabView: View {
             NavigationStack { AdminEventsView() }
                 .tabItem { Label("Events", systemImage: selectedTab == 1 ? "calendar.badge.plus" : "calendar") }
                 .tag(1)
-            NavigationStack { AdminCheckInView() }
+            NavigationStack { QRScannerView() }
                 .tabItem { Label("Check-In", systemImage: selectedTab == 2 ? "qrcode.viewfinder" : "qrcode") }
                 .tag(2)
         }
@@ -131,21 +131,39 @@ struct AdminHomeView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private var activeEvents: [Event] {
+        viewModel.allAdminEvents.filter { event in
+            event.isActive && !(event.endsAt.map { $0.dateValue() <= Date() } ?? false)
+        }
+    }
+
     private var statsGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: DFSpacing.md) {
-            AdminStatCard(value: "\(viewModel.allAdminEvents.count)", label: "Total Events", icon: "calendar", color: .blue)
-            AdminStatCard(value: "\(viewModel.allAdminEvents.filter { $0.isActive }.count)", label: "Active", icon: "bolt.fill", color: .green)
-            AdminStatCard(value: "\(totalGuests)", label: "Guests", icon: "person.2.fill", color: .orange)
-            AdminStatCard(value: "\(totalInsideFence)", label: "Inside Fence", icon: "location.fill", color: .purple)
+            NavigationLink(destination: AllEventsDetailView(viewModel: viewModel)) {
+                AdminStatCard(value: "\(viewModel.allAdminEvents.count)", label: "Total Events", icon: "calendar", color: .blue)
+            }
+            .buttonStyle(.plain)
+            NavigationLink(destination: ActiveEventsDetailView(viewModel: viewModel)) {
+                AdminStatCard(value: "\(activeEvents.count)", label: "Active", icon: "bolt.fill", color: .green)
+            }
+            .buttonStyle(.plain)
+            NavigationLink(destination: GuestsDetailView(viewModel: viewModel)) {
+                AdminStatCard(value: "\(totalGuests)", label: "Guests", icon: "person.2.fill", color: .orange)
+            }
+            .buttonStyle(.plain)
+            NavigationLink(destination: InsideFenceDetailView(viewModel: viewModel)) {
+                AdminStatCard(value: "\(totalInsideFence)", label: "Inside Fence", icon: "location.fill", color: .purple)
+            }
+            .buttonStyle(.plain)
         }
         .opacity(appeared ? 1 : 0)
     }
 
     private var totalGuests: Int {
-        viewModel.allAdminEvents.reduce(0) { $0 + viewModel.totalTickets(for: $1.id ?? "") }
+        activeEvents.reduce(0) { $0 + viewModel.totalTickets(for: $1.id ?? "") }
     }
     private var totalInsideFence: Int {
-        viewModel.allAdminEvents.reduce(0) { $0 + viewModel.insideFenceCount(for: $1.id ?? "") }
+        activeEvents.reduce(0) { $0 + viewModel.insideFenceCount(for: $1.id ?? "") }
     }
 
     private var quickActions: some View {
@@ -286,122 +304,6 @@ struct AdminEventRow: View {
     }
 }
 
-// MARK: - Admin Check-In View
-
-struct AdminCheckInView: View {
-    @StateObject private var viewModel = AdminViewModel()
-    @State private var scannedCode: String = ""
-    @State private var isScanning = false
-    @State private var scanResult: String?
-    @State private var showResult = false
-
-    var body: some View {
-        ZStack {
-            Color(.systemGroupedBackground).ignoresSafeArea()
-            VStack(spacing: DFSpacing.xl) {
-                Spacer()
-                // Scanner visual
-                ZStack {
-                    RoundedRectangle(cornerRadius: DFCornerRadius.xxl, style: .continuous)
-                        .stroke(Color.dfAccent.opacity(0.3), lineWidth: 2)
-                        .frame(width: 220, height: 220)
-                    if isScanning {
-                        ScanningLine()
-                    }
-                    Image(systemName: "qrcode.viewfinder")
-                        .font(.system(size: 80, weight: .ultraLight))
-                        .foregroundColor(.dfAccent.opacity(0.4))
-                }
-
-                VStack(spacing: DFSpacing.md) {
-                    Text("Scan QR Code")
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
-                    Text("Point camera at attendee's QR code to verify entry")
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, DFSpacing.xxl)
-                }
-
-                // Manual code entry
-                VStack(spacing: DFSpacing.md) {
-                    DFTextField(icon: "number", placeholder: "Enter code manually", text: $scannedCode)
-                        .padding(.horizontal, DFSpacing.xl)
-                    DFPrimaryButton(title: "Verify Code", icon: "checkmark.shield.fill", isDisabled: scannedCode.trimmingCharacters(in: .whitespaces).isEmpty) {
-                        verifyCode()
-                    }
-                    .padding(.horizontal, DFSpacing.xl)
-                }
-
-                Spacer()
-            }
-        }
-        .navigationTitle("Check-In")
-        .navigationBarTitleDisplayMode(.large)
-        .alert("Scan Result", isPresented: $showResult) {
-            Button("OK") { scannedCode = "" }
-        } message: {
-            Text(scanResult ?? "")
-        }
-    }
-
-    private func verifyCode() {
-        HapticManager.shared.medium()
-        let code = scannedCode.trimmingCharacters(in: .whitespaces)
-        guard !code.isEmpty else { return }
-        Task {
-            do {
-                let snap = try await FirebaseManager.shared.ticketsCollection
-                    .whereField("entryCode", isEqualTo: code)
-                    .limit(to: 1)
-                    .getDocuments()
-                if let doc = snap.documents.first {
-                    let ticket = try doc.data(as: Ticket.self)
-                    
-                    // Check if the event is still active
-                    let eventDoc = try await FirebaseManager.shared.eventsCollection
-                        .document(ticket.eventId).getDocument()
-                    let event = try? eventDoc.data(as: Event.self)
-                    
-                    let eventEnded: Bool = {
-                        guard let event = event else { return false }
-                        if !event.isActive { return true }
-                        if let endsAt = event.endsAt, endsAt.dateValue() <= Date() { return true }
-                        return false
-                    }()
-                    
-                    if eventEnded {
-                        scanResult = "❌ Event has ended. This entry code is no longer valid."
-                        HapticManager.shared.error()
-                    } else if ticket.status == .active {
-                        // Mark QR as scanned
-                        try await doc.reference.updateData([
-                            "qrScanned": true,
-                            "scannedAt": FieldValue.serverTimestamp(),
-                            "checkInTime": FieldValue.serverTimestamp()
-                        ])
-                        scanResult = "✅ Valid ticket! Guest is checked in."
-                        HapticManager.shared.success()
-                    } else if ticket.status == .pending {
-                        scanResult = "⏳ Ticket is pending activation."
-                        HapticManager.shared.warning()
-                    } else {
-                        scanResult = "❌ Ticket is expired/deactivated."
-                        HapticManager.shared.error()
-                    }
-                } else {
-                    scanResult = "❌ No ticket found with this code."
-                    HapticManager.shared.error()
-                }
-                showResult = true
-            } catch {
-                scanResult = "Error: \(error.localizedDescription)"
-                showResult = true
-                HapticManager.shared.error()
-            }
-        }
-    }
-}
 
 
 // MARK: - User Notifications View
@@ -572,7 +474,11 @@ struct UserNotification: Identifiable {
         switch type {
         case "activated": return "checkmark.circle.fill"
         case "exited": return "arrow.right.circle.fill"
-        case "expired": return "xmark.circle.fill"
+        case "expired":
+            if let reason = detail?["reason"] as? String, reason == "event_ended" {
+                return "party.popper.fill"
+            }
+            return "xmark.circle.fill"
         default: return "bell.fill"
         }
     }
@@ -580,7 +486,11 @@ struct UserNotification: Identifiable {
         switch type {
         case "activated": return .green
         case "exited": return .orange
-        case "expired": return .red
+        case "expired":
+            if let reason = detail?["reason"] as? String, reason == "event_ended" {
+                return .purple
+            }
+            return .red
         default: return .blue
         }
     }
@@ -590,7 +500,7 @@ struct UserNotification: Identifiable {
         case "exited": return "You exited the geofence"
         case "expired":
             if let reason = detail?["reason"] as? String, reason == "event_ended" {
-                return "Event has ended"
+                return "Event is over! 🎉 Hope you enjoyed!"
             }
             return "Your pass has expired"
         default: return "Update on your ticket"
@@ -783,18 +693,6 @@ struct ProfileInfoRow: View {
     }
 }
 
-private struct ScanningLine: View {
-    @State private var offset: CGFloat = -100
-    var body: some View {
-        Rectangle()
-            .fill(LinearGradient(colors: [.clear, .dfAccent.opacity(0.6), .clear], startPoint: .leading, endPoint: .trailing))
-            .frame(height: 2)
-            .offset(y: offset)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) { offset = 100 }
-            }
-    }
-}
 
 struct InfoDisplayRow: View {
     let icon: String; let label: String; let value: String; let color: Color
@@ -805,5 +703,272 @@ struct InfoDisplayRow: View {
             Spacer()
             Text(value).font(.system(size: 13, weight: .medium))
         }
+    }
+}
+
+// MARK: - All Events Detail View
+
+struct AllEventsDetailView: View {
+    @ObservedObject var viewModel: AdminViewModel
+
+    var body: some View {
+        ZStack {
+            Color(.systemGroupedBackground).ignoresSafeArea()
+            if viewModel.allAdminEvents.isEmpty {
+                DFEmptyState(icon: "calendar.badge.exclamationmark", title: "No Events", message: "You haven't created any events yet.")
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: DFSpacing.md) {
+                        ForEach(Array(viewModel.allAdminEvents.enumerated()), id: \.element.id) { index, event in
+                            DashboardEventCard(event: event, viewModel: viewModel)
+                                .entranceAnimation(index: index)
+                        }
+                    }
+                    .padding(.horizontal, DFSpacing.lg)
+                    .padding(.top, DFSpacing.sm)
+                    .padding(.bottom, 100)
+                }
+            }
+        }
+        .navigationTitle("All Events")
+        .navigationBarTitleDisplayMode(.large)
+        .onAppear {
+            for e in viewModel.allAdminEvents {
+                if let id = e.id { viewModel.startListeningToTickets(for: id) }
+            }
+        }
+    }
+}
+
+// MARK: - Active Events Detail View
+
+struct ActiveEventsDetailView: View {
+    @ObservedObject var viewModel: AdminViewModel
+
+    private var activeEvents: [Event] {
+        viewModel.allAdminEvents.filter { event in
+            event.isActive && !(event.endsAt.map { $0.dateValue() <= Date() } ?? false)
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            Color(.systemGroupedBackground).ignoresSafeArea()
+            if activeEvents.isEmpty {
+                DFEmptyState(icon: "bolt.slash", title: "No Active Events", message: "There are no currently active events.")
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: DFSpacing.md) {
+                        ForEach(Array(activeEvents.enumerated()), id: \.element.id) { index, event in
+                            DashboardEventCard(event: event, viewModel: viewModel)
+                                .entranceAnimation(index: index)
+                        }
+                    }
+                    .padding(.horizontal, DFSpacing.lg)
+                    .padding(.top, DFSpacing.sm)
+                    .padding(.bottom, 100)
+                }
+            }
+        }
+        .navigationTitle("Active Events")
+        .navigationBarTitleDisplayMode(.large)
+        .onAppear {
+            for e in activeEvents {
+                if let id = e.id { viewModel.startListeningToTickets(for: id) }
+            }
+        }
+    }
+}
+
+// MARK: - Guests Detail View
+
+struct GuestsDetailView: View {
+    @ObservedObject var viewModel: AdminViewModel
+
+    private var activeEvents: [Event] {
+        viewModel.allAdminEvents.filter { event in
+            event.isActive && !(event.endsAt.map { $0.dateValue() <= Date() } ?? false)
+        }
+    }
+
+    private var totalGuests: Int {
+        activeEvents.reduce(0) { $0 + viewModel.totalTickets(for: $1.id ?? "") }
+    }
+
+    var body: some View {
+        ZStack {
+            Color(.systemGroupedBackground).ignoresSafeArea()
+            if activeEvents.isEmpty {
+                DFEmptyState(icon: "person.2.slash", title: "No Active Events", message: "Guest counts are shown for active events only.")
+            } else {
+                ScrollView {
+                    VStack(spacing: DFSpacing.lg) {
+                        // Summary card
+                        VStack(spacing: DFSpacing.sm) {
+                            Text("\(totalGuests)")
+                                .font(.system(size: 42, weight: .bold, design: .rounded))
+                                .foregroundColor(.orange)
+                                .contentTransition(.numericText())
+                            Text("Total Guests Across Active Events")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, DFSpacing.xl)
+                        .background(Color(.secondarySystemGroupedBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.xl, style: .continuous))
+
+                        // Per-event breakdown
+                        DFSectionHeader(title: "Guests Per Event", icon: "person.2.fill", iconColor: .orange)
+                        ForEach(Array(activeEvents.enumerated()), id: \.element.id) { index, event in
+                            let eventId = event.id ?? ""
+                            NavigationLink(destination: EventGuestTrackerView(event: event, viewModel: viewModel)) {
+                                DetailEventRow(
+                                    eventTitle: event.title,
+                                    value: viewModel.totalTickets(for: eventId),
+                                    label: "guests",
+                                    icon: "person.2.fill",
+                                    color: .orange,
+                                    isActive: event.isActive
+                                )
+                            }
+                            .buttonStyle(DFCardButtonStyle())
+                            .entranceAnimation(index: index)
+                        }
+                    }
+                    .padding(.horizontal, DFSpacing.lg)
+                    .padding(.top, DFSpacing.sm)
+                    .padding(.bottom, 100)
+                }
+            }
+        }
+        .navigationTitle("Guests")
+        .navigationBarTitleDisplayMode(.large)
+        .onAppear {
+            for e in activeEvents {
+                if let id = e.id { viewModel.startListeningToTickets(for: id) }
+            }
+        }
+    }
+}
+
+// MARK: - Inside Fence Detail View
+
+struct InsideFenceDetailView: View {
+    @ObservedObject var viewModel: AdminViewModel
+
+    private var activeEvents: [Event] {
+        viewModel.allAdminEvents.filter { event in
+            event.isActive && !(event.endsAt.map { $0.dateValue() <= Date() } ?? false)
+        }
+    }
+
+    private var totalInsideFence: Int {
+        activeEvents.reduce(0) { $0 + viewModel.insideFenceCount(for: $1.id ?? "") }
+    }
+
+    var body: some View {
+        ZStack {
+            Color(.systemGroupedBackground).ignoresSafeArea()
+            if activeEvents.isEmpty {
+                DFEmptyState(icon: "location.slash", title: "No Active Events", message: "Inside fence counts are shown for active events only.")
+            } else {
+                ScrollView {
+                    VStack(spacing: DFSpacing.lg) {
+                        // Summary card
+                        VStack(spacing: DFSpacing.sm) {
+                            Text("\(totalInsideFence)")
+                                .font(.system(size: 42, weight: .bold, design: .rounded))
+                                .foregroundColor(.purple)
+                                .contentTransition(.numericText())
+                            Text("Total Inside Fence Across Active Events")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, DFSpacing.xl)
+                        .background(Color(.secondarySystemGroupedBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.xl, style: .continuous))
+
+                        // Per-event breakdown
+                        DFSectionHeader(title: "Inside Fence Per Event", icon: "location.fill", iconColor: .purple)
+                        ForEach(Array(activeEvents.enumerated()), id: \.element.id) { index, event in
+                            let eventId = event.id ?? ""
+                            NavigationLink(destination: EventGuestTrackerView(event: event, viewModel: viewModel)) {
+                                DetailEventRow(
+                                    eventTitle: event.title,
+                                    value: viewModel.insideFenceCount(for: eventId),
+                                    label: "inside",
+                                    icon: "location.fill",
+                                    color: .purple,
+                                    isActive: event.isActive
+                                )
+                            }
+                            .buttonStyle(DFCardButtonStyle())
+                            .entranceAnimation(index: index)
+                        }
+                    }
+                    .padding(.horizontal, DFSpacing.lg)
+                    .padding(.top, DFSpacing.sm)
+                    .padding(.bottom, 100)
+                }
+            }
+        }
+        .navigationTitle("Inside Fence")
+        .navigationBarTitleDisplayMode(.large)
+        .onAppear {
+            for e in activeEvents {
+                if let id = e.id { viewModel.startListeningToTickets(for: id) }
+            }
+        }
+    }
+}
+
+// MARK: - Detail Event Row (shared component for detail views)
+
+struct DetailEventRow: View {
+    let eventTitle: String
+    let value: Int
+    let label: String
+    let icon: String
+    let color: Color
+    let isActive: Bool
+
+    var body: some View {
+        HStack(spacing: DFSpacing.md) {
+            // Status indicator
+            ZStack {
+                RoundedRectangle(cornerRadius: DFCornerRadius.md, style: .continuous)
+                    .fill(isActive ? Color.green.opacity(0.1) : Color.gray.opacity(0.1))
+                    .frame(width: 48, height: 48)
+                Image(systemName: isActive ? "bolt.fill" : "moon.fill")
+                    .font(.system(size: 18))
+                    .foregroundColor(isActive ? .green : .gray)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(eventTitle)
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Image(systemName: icon)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(color)
+                    Text("\(value) \(label)")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(color)
+                }
+            }
+            Spacer()
+            Text("\(value)")
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundColor(color)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(Color(.tertiaryLabel))
+        }
+        .padding(DFSpacing.md)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.lg, style: .continuous))
     }
 }

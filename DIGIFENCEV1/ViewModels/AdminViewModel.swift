@@ -484,10 +484,48 @@ final class AdminViewModel: ObservableObject {
     
     func toggleEventActive(event: Event) async {
         guard let eventId = event.id else { return }
+        let newActiveState = !event.isActive
         do {
             try await firebase.eventsCollection.document(eventId).updateData([
-                "isActive": !event.isActive
+                "isActive": newActiveState
             ])
+            
+            // If deactivating the event, expire all active/pending tickets
+            if !newActiveState {
+                let ticketsSnap = try await firebase.ticketsCollection
+                    .whereField("eventId", isEqualTo: eventId)
+                    .getDocuments()
+                
+                let batch = Firestore.firestore().batch()
+                var expiredCount = 0
+                
+                for doc in ticketsSnap.documents {
+                    let status = doc.data()["status"] as? String ?? ""
+                    if status == "active" || status == "pending" {
+                        batch.updateData([
+                            "status": "expired",
+                            "insideFence": false,
+                            "biometricVerified": false
+                        ], forDocument: doc.reference)
+                        
+                        // Log the termination
+                        let logRef = Firestore.firestore().collection("attendance_logs").document()
+                        batch.setData([
+                            "ticketId": doc.documentID,
+                            "type": "expired",
+                            "detail": ["reason": "event_ended", "eventTitle": event.title],
+                            "timestamp": FieldValue.serverTimestamp()
+                        ], forDocument: logRef)
+                        
+                        expiredCount += 1
+                    }
+                }
+                
+                if expiredCount > 0 {
+                    try await batch.commit()
+                    print("✅ Expired \(expiredCount) ticket(s) for deactivated event '\(event.title)'")
+                }
+            }
         } catch {
             errorMessage = error.localizedDescription
             showError = true

@@ -363,7 +363,7 @@ exports.activateTicket = onCall(async (request) => {
       tx.update(ticketRef, {
         status: "active",
         biometricVerified: true,
-        insideFence: true,
+        insideFence: false,
         activatedAt: FieldValue.serverTimestamp(),
         entryCode,
       });
@@ -704,7 +704,7 @@ exports.handleHysteresis = onSchedule("every 1 minutes", async () => {
  * Scheduled every 5 minutes. Finds active events whose endsAt has passed,
  * deactivates them, and expires all their active/pending tickets.
  */
-exports.handleExpiredEvents = onSchedule("every 5 minutes", async () => {
+exports.handleExpiredEvents = onSchedule("every 1 minutes", async () => {
   const now = new Date();
 
   // Find active events that have ended

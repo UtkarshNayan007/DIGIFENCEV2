@@ -43,8 +43,16 @@ struct AdminDashboardView: View {
         .onDisappear { viewModel.stopListening() }
     }
 
-    private var activeEvents: [Event] { viewModel.allAdminEvents.filter { $0.isActive } }
-    private var inactiveEvents: [Event] { viewModel.allAdminEvents.filter { !$0.isActive } }
+    private var activeEvents: [Event] {
+        viewModel.allAdminEvents.filter { event in
+            event.isActive && !(event.endsAt.map { $0.dateValue() <= Date() } ?? false)
+        }
+    }
+    private var inactiveEvents: [Event] {
+        viewModel.allAdminEvents.filter { event in
+            !event.isActive || (event.endsAt.map { $0.dateValue() <= Date() } ?? false)
+        }
+    }
 
     private var statsGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: DFSpacing.md) {
@@ -56,8 +64,16 @@ struct AdminDashboardView: View {
         .opacity(appeared ? 1 : 0)
     }
 
-    private var totalGuests: Int { viewModel.allAdminEvents.reduce(0) { $0 + viewModel.totalTickets(for: $1.id ?? "") } }
-    private var totalCheckedIn: Int { viewModel.allAdminEvents.reduce(0) { $0 + viewModel.activeGuestCount(for: $1.id ?? "") } }
+    private var totalGuests: Int {
+        viewModel.allAdminEvents.filter { event in
+            event.isActive && !(event.endsAt.map { $0.dateValue() <= Date() } ?? false)
+        }.reduce(0) { $0 + viewModel.totalTickets(for: $1.id ?? "") }
+    }
+    private var totalCheckedIn: Int {
+        viewModel.allAdminEvents.filter { event in
+            event.isActive && !(event.endsAt.map { $0.dateValue() <= Date() } ?? false)
+        }.reduce(0) { $0 + viewModel.activeGuestCount(for: $1.id ?? "") }
+    }
 
     private func eventsSection(title: String, icon: String, iconColor: Color, events: [Event]) -> some View {
         VStack(alignment: .leading, spacing: DFSpacing.md) {
@@ -129,6 +145,20 @@ struct DashboardEventCard: View {
                     EventStatItem(icon: "person.2.fill", value: viewModel.totalTickets(for: eventId), label: "Guests", color: .blue)
                     EventStatItem(icon: "checkmark.circle.fill", value: viewModel.activeGuestCount(for: eventId), label: "Active", color: .green)
                     EventStatItem(icon: "location.fill", value: viewModel.insideFenceCount(for: eventId), label: "Inside", color: .orange)
+                }
+
+                if !event.isActive || isEventTimeOver {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 12))
+                        Text("All passes terminated")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundColor(.orange)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.orange.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.sm, style: .continuous))
                 }
             }
             .padding(DFSpacing.lg)
@@ -282,8 +312,17 @@ struct EventGuestTrackerView: View {
 
     private var eventId: String { event.id ?? "" }
 
+    private var isEventOver: Bool {
+        if !event.isActive { return true }
+        if let endsAt = event.endsAt, endsAt.dateValue() <= Date() { return true }
+        return false
+    }
+
     var body: some View {
         VStack(spacing: 0) {
+            if isEventOver {
+                eventOverBanner
+            }
             statsHeader
             if let cap = event.capacity, cap > 0 { capacityBar(capacity: cap) }
             Divider()
@@ -332,12 +371,25 @@ struct EventGuestTrackerView: View {
         }
     }
 
+    private var eventOverBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 14))
+            Text("Event Over — All Passes Terminated")
+                .font(.system(size: 13, weight: .semibold))
+        }
+        .foregroundColor(.orange)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(Color.orange.opacity(0.08))
+    }
+
     private var statsHeader: some View {
         HStack(spacing: 0) {
-            GuestStatTile(value: viewModel.insideFenceCount(for: eventId), label: "Inside", color: .blue)
-            GuestStatTile(value: viewModel.activeGuestCount(for: eventId), label: "Checked In", color: .green)
-            GuestStatTile(value: viewModel.pendingCount(for: eventId), label: "Pending", color: .orange)
-            GuestStatTile(value: viewModel.expiredCount(for: eventId), label: "Expired", color: .red)
+            GuestStatTile(value: isEventOver ? 0 : viewModel.insideFenceCount(for: eventId), label: "Inside", color: isEventOver ? .gray : .blue)
+            GuestStatTile(value: isEventOver ? 0 : viewModel.activeGuestCount(for: eventId), label: "Checked In", color: isEventOver ? .gray : .green)
+            GuestStatTile(value: isEventOver ? 0 : viewModel.pendingCount(for: eventId), label: "Pending", color: isEventOver ? .gray : .orange)
+            GuestStatTile(value: viewModel.expiredCount(for: eventId) + (isEventOver ? viewModel.activeGuestCount(for: eventId) + viewModel.pendingCount(for: eventId) : 0), label: "Expired", color: .red)
         }
         .padding(.horizontal, DFSpacing.lg)
         .padding(.vertical, DFSpacing.lg)
@@ -414,7 +466,7 @@ struct EventGuestTrackerView: View {
                                 HapticManager.shared.light()
                                 selectedGuest = ticket
                             } label: {
-                                GuestRowNew(ticket: ticket, ownerName: viewModel.ticketOwnerNames[ticket.ownerId], isDeactivated: viewModel.deactivatedTicketIds.contains(ticket.id ?? ""))
+                                GuestRowNew(ticket: ticket, ownerName: viewModel.ticketOwnerNames[ticket.ownerId], isDeactivated: isEventOver || viewModel.deactivatedTicketIds.contains(ticket.id ?? ""))
                             }
                             .buttonStyle(DFCardButtonStyle())
                             .entranceAnimation(index: index)
@@ -430,6 +482,17 @@ struct EventGuestTrackerView: View {
 
     private var filteredTickets: [Ticket] {
         let allTickets = viewModel.eventTickets[eventId] ?? []
+        // If event is over, treat ALL tickets as deactivated
+        if isEventOver {
+            if guestSearch.isEmpty { return allTickets }
+            return allTickets.filter { ticket in
+                let name = viewModel.ticketOwnerNames[ticket.ownerId] ?? ""
+                let email = viewModel.ticketOwnerEmails[ticket.ownerId] ?? ""
+                return name.localizedCaseInsensitiveContains(guestSearch)
+                    || email.localizedCaseInsensitiveContains(guestSearch)
+                    || ticket.ownerId.localizedCaseInsensitiveContains(guestSearch)
+            }
+        }
         let tabFiltered: [Ticket]
         switch selectedSort {
         case .active:
@@ -451,6 +514,14 @@ struct EventGuestTrackerView: View {
 
     private func countForTab(_ tab: GuestSortTab) -> Int {
         let allTickets = viewModel.eventTickets[eventId] ?? []
+        if isEventOver {
+            // When event is over, all guests are in deactivated state
+            switch tab {
+            case .active: return 0
+            case .pending: return 0
+            case .deactivated: return allTickets.count
+            }
+        }
         switch tab {
         case .active: return allTickets.filter { $0.status == .active && $0.qrScanned == true }.count
         case .pending: return allTickets.filter { $0.status == .pending || ($0.status == .active && $0.qrScanned != true) }.count

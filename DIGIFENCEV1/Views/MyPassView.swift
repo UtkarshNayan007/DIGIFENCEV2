@@ -265,9 +265,19 @@ struct PassCard: View {
                     .lineLimit(1)
                 HStack(spacing: 6) {
                     if effectivelyExpired && !ticket.isExpired {
-                        Text("Event Ended")
+                        Text("Pass Terminated")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundColor(.red)
+                    } else if ticket.isExpired {
+                        if isEventExpired {
+                            Text("Event Over – Pass Expired")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.red)
+                        } else {
+                            Text(ticket.statusDisplayText)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(statusColor)
+                        }
                     } else {
                         Text(ticket.statusDisplayText)
                             .font(.system(size: 11, weight: .medium))
@@ -431,11 +441,22 @@ struct PassCard: View {
     }
 
     private var eventExpiredContent: some View {
-        VStack(spacing: 10) {
-            DFIconBadge(icon: "calendar.badge.exclamationmark", color: .red, size: 56, iconSize: 26)
-            Text("Event has ended").font(.system(size: 14, weight: .medium)).foregroundColor(Color(.tertiaryLabel))
-            Text("Your pass and entry code are no longer valid").font(.system(size: 12)).foregroundColor(Color(.quaternaryLabel))
+        VStack(spacing: DFSpacing.md) {
+            DFIconBadge(icon: "party.popper.fill", color: .purple, size: 64, iconSize: 28)
+            VStack(spacing: 6) {
+                Text("Event is Over! 🎉")
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+                Text("Hope you had an amazing time!")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.secondary)
+                Text("Your pass and entry code have been terminated.")
+                    .font(.system(size: 12))
+                    .foregroundColor(Color(.tertiaryLabel))
+                    .multilineTextAlignment(.center)
+            }
         }
+        .padding(.vertical, DFSpacing.md)
     }
 }
 
