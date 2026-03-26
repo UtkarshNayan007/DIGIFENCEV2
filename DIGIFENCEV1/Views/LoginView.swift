@@ -49,7 +49,10 @@ struct LoginView: View {
                 }
             }
         }
-        .ignoresSafeArea(.keyboard)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        }
         .onAppear {
             withAnimation(.easeOut(duration: 0.5).delay(0.2)) { appeared = true }
         }

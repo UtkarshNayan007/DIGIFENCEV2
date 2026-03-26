@@ -160,16 +160,24 @@ final class BrightnessManager {
     static let shared = BrightnessManager()
     private var savedBrightness: CGFloat?
 
+    private var currentScreen: UIScreen? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first?.screen
+    }
+
     func boost() {
+        guard let screen = currentScreen else { return }
         if savedBrightness == nil {
-            savedBrightness = UIScreen.main.brightness
+            savedBrightness = screen.brightness
         }
-        UIScreen.main.brightness = 1.0
+        screen.brightness = 1.0
     }
 
     func restore() {
+        guard let screen = currentScreen else { return }
         if let saved = savedBrightness {
-            UIScreen.main.brightness = saved
+            screen.brightness = saved
             savedBrightness = nil
         }
     }

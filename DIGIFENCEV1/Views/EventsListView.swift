@@ -287,6 +287,15 @@ private struct UserProfileStat: View {
 struct EventCardView: View {
     let event: Event
 
+    private var isExpired: Bool {
+        guard let endsAt = event.endsAt else { return false }
+        return endsAt.dateValue() <= Date()
+    }
+    
+    private var isLive: Bool {
+        return event.isActive && !isExpired
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Thumbnail
@@ -308,7 +317,7 @@ struct EventCardView: View {
                     }
                     Spacer()
                     Circle()
-                        .fill(event.isActive ? Color.green : Color.red)
+                        .fill(isLive ? Color.green : Color.red)
                         .frame(width: 8, height: 8)
                         .padding(.top, 5)
                 }
@@ -347,6 +356,7 @@ struct EventCardView: View {
                         .overlay(ProgressView().controlSize(.small))
                 }
             }
+            .id(urlStr)
         } else {
             placeholderImage
         }
