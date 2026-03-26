@@ -376,54 +376,86 @@ struct UserNotificationsView: View {
     private func refreshNotifications() async {
         guard let uid = firebase.currentUser?.uid else { return }
         do {
+            // 1. Fetch all user tickets
             let ticketSnap = try await FirebaseManager.shared.ticketsCollection
                 .whereField("ownerId", isEqualTo: uid)
                 .getDocuments()
             
-            // Build ticketId -> eventId mapping
-            var ticketEventMap: [String: String] = [:]
-            var eventIds: Set<String> = []
-            for doc in ticketSnap.documents {
-                let data = doc.data()
-                if let eventId = data["eventId"] as? String {
-                    ticketEventMap[doc.documentID] = eventId
-                    eventIds.insert(eventId)
+            let tickets = ticketSnap.documents.compactMap { try? $0.data(as: Ticket.self) }
+            let myTicketIds = tickets.compactMap { $0.id }
+            
+            // 2. Fetch associated events
+            var events: [String: Event] = [:]
+            let eventIds = Set(tickets.map { $0.eventId })
+            for eid in eventIds {
+                if let eventDoc = try? await firebase.eventsCollection.document(eid).getDocument(),
+                   let event = try? eventDoc.data(as: Event.self) {
+                    events[eid] = event
                 }
             }
             
-            // Fetch event titles
-            var eventTitles: [String: String] = [:]
-            for eventId in eventIds {
-                let eventDoc = try await Firestore.firestore().collection("events").document(eventId).getDocument()
-                if let title = eventDoc.data()?["title"] as? String {
-                    eventTitles[eventId] = title
-                }
-            }
-            
-            let myTicketIds = Set(ticketSnap.documents.map { $0.documentID })
-            var notifs: [UserNotification] = []
-            for chunk in Array(myTicketIds).chunked(into: 10) {
-                let snap = try await Firestore.firestore()
+            // 3. Fetch attendance logs
+            var logs: [AttendanceLog] = []
+            for chunk in myTicketIds.chunked(into: 10) {
+                let logSnap = try await Firestore.firestore()
                     .collection("attendance_logs")
                     .whereField("ticketId", in: Array(chunk))
                     .order(by: "timestamp", descending: true)
-                    .limit(to: 100)
+                    .limit(to: 50)
                     .getDocuments()
-                for doc in snap.documents {
-                    let data = doc.data()
-                    let ticketId = data["ticketId"] as? String ?? ""
-                    let eventId = ticketEventMap[ticketId]
-                    notifs.append(UserNotification(
-                        id: doc.documentID,
-                        type: data["type"] as? String ?? "update",
-                        ticketId: ticketId,
-                        detail: data["detail"] as? [String: Any],
-                        timestamp: data["timestamp"] as? Timestamp,
-                        eventTitle: eventId.flatMap { eventTitles[$0] }
+                logs.append(contentsOf: logSnap.documents.compactMap { try? $0.data(as: AttendanceLog.self) })
+            }
+            
+            // 4. Combine into UserNotifications
+            var allNotifs: [UserNotification] = []
+            
+            // A. Logs from Firestore
+            for log in logs {
+                let event = events[tickets.first(where: { $0.id == log.ticketId })?.eventId ?? ""]
+                allNotifs.append(UserNotification(
+                    id: log.id ?? UUID().uuidString,
+                    type: log.type,
+                    ticketId: log.ticketId,
+                    detail: log.detail?.reduce(into: [String: Any]()) { $0[$1.key] = $1.value.value },
+                    timestamp: log.timestamp,
+                    eventTitle: event?.title
+                ))
+            }
+            
+            // B. Virtual "Purchased" notifications
+            for ticket in tickets {
+                if let tid = ticket.id {
+                    allNotifs.append(UserNotification(
+                        id: tid + "_purchased",
+                        type: "purchased",
+                        ticketId: tid,
+                        detail: ["reason": "ticket_purchased"],
+                        timestamp: ticket.createdAt,
+                        eventTitle: events[ticket.eventId]?.title
                     ))
                 }
             }
-            notifications = notifs.sorted {
+            
+            // C. Virtual "Event Over" notifications (if not already in logs)
+            for ticket in tickets {
+                if let event = events[ticket.eventId], let endsAt = event.endsAt, endsAt.dateValue() < Date() {
+                    let tid = ticket.id ?? ""
+                    // Check if there's already an "expired" log for this ticket
+                    let alreadyLogged = logs.contains { $0.ticketId == tid && $0.type == "expired" }
+                    if !alreadyLogged {
+                        allNotifs.append(UserNotification(
+                            id: tid + "_ended_auto",
+                            type: "expired",
+                            ticketId: tid,
+                            detail: ["reason": "event_ended", "auto": true],
+                            timestamp: endsAt,
+                            eventTitle: event.title
+                        ))
+                    }
+                }
+            }
+            
+            notifications = allNotifs.sorted {
                 ($0.timestamp?.dateValue() ?? .distantPast) > ($1.timestamp?.dateValue() ?? .distantPast)
             }
         } catch {
@@ -432,62 +464,9 @@ struct UserNotificationsView: View {
     }
 
     private func loadNotifications() {
-        guard let uid = firebase.currentUser?.uid else { isLoading = false; return }
         Task {
-            do {
-                let ticketSnap = try await FirebaseManager.shared.ticketsCollection
-                    .whereField("ownerId", isEqualTo: uid)
-                    .getDocuments()
-                
-                // Build ticketId -> eventId mapping
-                var ticketEventMap: [String: String] = [:]
-                var eventIds: Set<String> = []
-                for doc in ticketSnap.documents {
-                    let data = doc.data()
-                    if let eventId = data["eventId"] as? String {
-                        ticketEventMap[doc.documentID] = eventId
-                        eventIds.insert(eventId)
-                    }
-                }
-                
-                // Fetch event titles
-                var eventTitles: [String: String] = [:]
-                for eventId in eventIds {
-                    let eventDoc = try await Firestore.firestore().collection("events").document(eventId).getDocument()
-                    if let title = eventDoc.data()?["title"] as? String {
-                        eventTitles[eventId] = title
-                    }
-                }
-                
-                let myTicketIds = Set(ticketSnap.documents.map { $0.documentID })
-                var notifs: [UserNotification] = []
-                for chunk in Array(myTicketIds).chunked(into: 10) {
-                    let snap = try await Firestore.firestore()
-                        .collection("attendance_logs")
-                        .whereField("ticketId", in: Array(chunk))
-                        .order(by: "timestamp", descending: true)
-                        .limit(to: 100)
-                        .getDocuments()
-                    for doc in snap.documents {
-                        let data = doc.data()
-                        let ticketId = data["ticketId"] as? String ?? ""
-                        let eventId = ticketEventMap[ticketId]
-                        notifs.append(UserNotification(
-                            id: doc.documentID,
-                            type: data["type"] as? String ?? "update",
-                            ticketId: ticketId,
-                            detail: data["detail"] as? [String: Any],
-                            timestamp: data["timestamp"] as? Timestamp,
-                            eventTitle: eventId.flatMap { eventTitles[$0] }
-                        ))
-                    }
-                }
-                notifications = notifs.sorted {
-                    ($0.timestamp?.dateValue() ?? .distantPast) > ($1.timestamp?.dateValue() ?? .distantPast)
-                }
-            } catch {
-                print("❌ Load notifications error: \(error)")
-            }
+            isLoading = true
+            await refreshNotifications()
             isLoading = false
         }
     }
@@ -505,6 +484,7 @@ struct UserNotification: Identifiable {
         switch type {
         case "activated": return "checkmark.circle.fill"
         case "exited": return "arrow.right.circle.fill"
+        case "purchased": return "ticket.fill"
         case "expired":
             if let reason = detail?["reason"] as? String, reason == "event_ended" {
                 return "party.popper.fill"
@@ -517,6 +497,7 @@ struct UserNotification: Identifiable {
         switch type {
         case "activated": return .green
         case "exited": return .orange
+        case "purchased": return .dfAccent
         case "expired":
             if let reason = detail?["reason"] as? String, reason == "event_ended" {
                 return .purple
@@ -529,9 +510,13 @@ struct UserNotification: Identifiable {
         switch type {
         case "activated": return "Your pass was activated"
         case "exited": return "You exited the geofence"
+        case "purchased": return "Ticket Secured! Ready for biometrics."
         case "expired":
             if let reason = detail?["reason"] as? String, reason == "event_ended" {
                 return "Event is over! 🎉 Hope you enjoyed!"
+            }
+            if let reason = detail?["reason"] as? String, reason == "admin_deactivated" {
+                return "Pass terminated by security"
             }
             return "Your pass has expired"
         default: return "Update on your ticket"
