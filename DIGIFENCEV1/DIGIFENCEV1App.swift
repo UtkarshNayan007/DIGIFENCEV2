@@ -29,6 +29,12 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Configure push notifications
         PushManager.shared.configure()
         
+        // Configure global URLCache for image caching (50MB memory, 250MB disk)
+        let memoryCapacity = 50 * 1024 * 1024
+        let diskCapacity = 250 * 1024 * 1024
+        let cache = URLCache(memoryCapacity: memoryCapacity, diskCapacity: diskCapacity, directory: nil)
+        URLCache.shared = cache
+        
         // Location authorization will be requested when needed (e.g. ticket activation)
         // Not requested eagerly to avoid crashes on simulator
         

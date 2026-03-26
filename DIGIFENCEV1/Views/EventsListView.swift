@@ -84,6 +84,9 @@ struct EventsListView: View {
                         .padding(.top, DFSpacing.sm)
                         .padding(.bottom, 100)
                     }
+                    .refreshable {
+                        viewModel.startListening()
+                    }
                 }
             }
         }
@@ -140,7 +143,6 @@ struct EventsListView: View {
 struct UserProfileSheet: View {
     @ObservedObject var firebase = FirebaseManager.shared
     @StateObject private var authVM = AuthViewModel()
-    @StateObject private var passVM = MyPassViewModel()
     @Environment(\.dismiss) private var dismiss
     @State private var showSignOutConfirm = false
     @State private var appeared = false
@@ -150,7 +152,6 @@ struct UserProfileSheet: View {
             ScrollView {
                 VStack(spacing: DFSpacing.xl) {
                     profileHeader
-                    passStats
                     accountInfo
                     securityInfo
 
@@ -169,10 +170,8 @@ struct UserProfileSheet: View {
                 Button("Cancel", role: .cancel) {}
             }
             .onAppear {
-                passVM.startListening()
                 withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) { appeared = true }
             }
-            .onDisappear { passVM.stopListening() }
         }
     }
 
@@ -211,14 +210,7 @@ struct UserProfileSheet: View {
         .opacity(appeared ? 1 : 0)
     }
 
-    private var passStats: some View {
-        HStack(spacing: DFSpacing.md) {
-            UserProfileStat(value: "\(passVM.activeTickets.count)", label: "Active", color: .green)
-            UserProfileStat(value: "\(passVM.pendingTickets.count)", label: "Pending", color: .orange)
-            UserProfileStat(value: "\(passVM.expiredTickets.count)", label: "Expired", color: .red)
-        }
-        .opacity(appeared ? 1 : 0)
-    }
+
 
     private var accountInfo: some View {
         VStack(spacing: 0) {
@@ -268,19 +260,7 @@ struct UserProfileSheet: View {
     }
 }
 
-private struct UserProfileStat: View {
-    let value: String; let label: String; let color: Color
-    var body: some View {
-        VStack(spacing: 5) {
-            Text(value).font(.system(size: 22, weight: .bold, design: .rounded)).foregroundColor(color)
-                .contentTransition(.numericText())
-            Text(label).font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary).textCase(.uppercase).tracking(0.5)
-        }
-        .frame(maxWidth: .infinity).padding(.vertical, DFSpacing.lg)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.lg, style: .continuous))
-    }
-}
+
 
 // MARK: - Event Card
 

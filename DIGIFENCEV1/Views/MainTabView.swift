@@ -111,6 +111,11 @@ struct AdminHomeView: View {
                 .padding(.top, DFSpacing.sm)
                 .padding(.bottom, 100)
             }
+            .refreshable {
+                viewModel.stopListening()
+                viewModel.startListeningToMyEvents()
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -242,6 +247,14 @@ struct AdminEventsView: View {
                         .padding(.horizontal, DFSpacing.lg)
                         .padding(.top, DFSpacing.sm)
                         .padding(.bottom, 100)
+                    }
+                    .refreshable {
+                        viewModel.stopListening()
+                        viewModel.startListeningToMyEvents()
+                        for e in viewModel.allAdminEvents {
+                            if let id = e.id { viewModel.startListeningToTickets(for: id) }
+                        }
+                        try? await Task.sleep(nanoseconds: 500_000_000)
                     }
                 }
             }

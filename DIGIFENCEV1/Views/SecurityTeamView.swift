@@ -53,6 +53,9 @@ struct SecurityTeamView: View {
                     .padding(.top, DFSpacing.sm)
                     .padding(.bottom, 100)
                 }
+                .refreshable {
+                    await viewModel.fetchPersonnel()
+                }
             }
         }
         .navigationTitle("Security Team")
