@@ -23,7 +23,6 @@ struct EventDetailView: View {
     @State private var calendarSaved = false
     @State private var showCalendarAlert = false
     @State private var calendarAlertMessage = ""
-    @State private var isSatelliteView = false
     @Environment(\.dismiss) private var dismiss
 
     private var displayEvent: Event { liveEvent ?? event }
@@ -236,29 +235,15 @@ struct EventDetailView: View {
 
     private var mapSection: some View {
         VStack(alignment: .leading, spacing: DFSpacing.md) {
-            HStack {
-                Label("Event Location", systemImage: "map.fill")
-                    .font(.system(size: 14, weight: .semibold)).foregroundColor(.dfAccent)
-                Spacer()
-                Button {
-                    HapticManager.shared.light()
-                    withAnimation { isSatelliteView.toggle() }
-                } label: {
-                    Image(systemName: isSatelliteView ? "globe.americas.fill" : "map")
-                        .font(.system(size: 14))
-                        .foregroundColor(isSatelliteView ? .white : .dfAccent)
-                        .padding(6)
-                        .background(isSatelliteView ? Color.dfAccent : Color.dfAccent.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.sm, style: .continuous))
-                }
-            }
+            Label("Event Location", systemImage: "map.fill")
+                .font(.system(size: 14, weight: .semibold)).foregroundColor(.dfAccent)
             Map(position: $cameraPosition) {
                 Annotation(displayEvent.title, coordinate: displayEvent.coordinate) { DFMapPin(color: .dfAccent) }
                 MapPolygon(coordinates: displayEvent.polygonCLCoordinates)
                     .foregroundStyle(Color.dfAccent.opacity(0.12))
                     .stroke(Color.dfAccent.opacity(0.5), lineWidth: 2)
             }
-            .mapStyle(isSatelliteView ? .hybrid(elevation: .realistic) : .standard(elevation: .realistic))
+            .mapStyle(.standard(elevation: .realistic))
             .frame(height: 200)
             .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.lg, style: .continuous))
         }

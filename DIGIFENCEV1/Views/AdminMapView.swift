@@ -28,7 +28,6 @@ struct AdminMapView: View {
         )
     )
     @State private var showCreateSheet = false
-    @State private var isSatelliteView = false
     @State private var mapSearchText = ""
     @State private var isSearchFocused = false
     @State private var selectedPinIndex: Int? = nil
@@ -119,15 +118,15 @@ struct AdminMapView: View {
                 MapPolyline(coordinates: viewModel.polygonPoints)
                     .stroke(.green.opacity(0.5), lineWidth: 2)
             }
+
+            Annotation("", coordinate: CLLocationCoordinate2D(latitude: viewModel.latitude, longitude: viewModel.longitude)) {
+                CrosshairMarker()
+            }
         }
-        .mapStyle(isSatelliteView ? .hybrid(elevation: .realistic) : .standard(elevation: .realistic))
+        .mapStyle(.standard(elevation: .realistic))
         .onMapCameraChange { context in
             viewModel.latitude = context.region.center.latitude
             viewModel.longitude = context.region.center.longitude
-        }
-        .overlay {
-            CrosshairMarker()
-                .allowsHitTesting(false)
         }
         .ignoresSafeArea(edges: .bottom)
     }
@@ -245,8 +244,7 @@ struct AdminMapView: View {
             do {
                 let response = try await search.start()
                 if let item = response.mapItems.first {
-                    // Fix for iOS 26.0 deprecation: Use location if available
-                    let coord = item.location.coordinate
+                    let coord = item.placemark.coordinate
                     await MainActor.run {
                         withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
                             cameraPosition = .region(MKCoordinateRegion(center: coord, latitudinalMeters: 800, longitudinalMeters: 800))
@@ -271,35 +269,19 @@ struct AdminMapView: View {
             Spacer()
             HStack {
                 Spacer()
-                VStack(spacing: DFSpacing.md) {
-                    Button {
-                        HapticManager.shared.light()
-                        isSatelliteView.toggle()
-                    } label: {
-                        Image(systemName: isSatelliteView ? "map.fill" : "globe.americas.fill")
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundColor(.white)
-                            .frame(width: 50, height: 50)
-                            .background(LinearGradient(colors: [.indigo, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
-                            .clipShape(Circle())
-                            .shadow(color: .indigo.opacity(0.4), radius: 12, y: 6)
-                    }
-                    .buttonStyle(DFScaleButtonStyle())
-                    
-                    Button {
-                        HapticManager.shared.light()
-                        viewModel.centerOnUserLocation(cameraPosition: $cameraPosition)
-                    } label: {
-                        Image(systemName: "location.fill")
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundColor(.white)
-                            .frame(width: 50, height: 50)
-                            .background(LinearGradient(colors: [.cyan, .blue], startPoint: .topLeading, endPoint: .bottomTrailing))
-                            .clipShape(Circle())
-                            .shadow(color: .cyan.opacity(0.4), radius: 12, y: 6)
-                    }
-                    .buttonStyle(DFScaleButtonStyle())
+                Button {
+                    HapticManager.shared.light()
+                    viewModel.centerOnUserLocation(cameraPosition: $cameraPosition)
+                } label: {
+                    Image(systemName: "location.fill")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(.white)
+                        .frame(width: 50, height: 50)
+                        .background(LinearGradient(colors: [.cyan, .blue], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .clipShape(Circle())
+                        .shadow(color: .cyan.opacity(0.4), radius: 12, y: 6)
                 }
+                .buttonStyle(DFScaleButtonStyle())
                 .padding(.trailing, DFSpacing.lg)
                 .padding(.bottom, 220)
             }
@@ -453,6 +435,7 @@ struct DraggablePolygonMarker: View {
     let onTap: () -> Void
     let onDrag: (CLLocationCoordinate2D) -> Void
 
+    @State private var appeared = false
     @State private var dragOffset: CGSize = .zero
     @GestureState private var isDragging = false
 
@@ -468,7 +451,7 @@ struct DraggablePolygonMarker: View {
                 Text("\(index + 1)").font(.system(size: 11, weight: .bold)).foregroundColor(.white)
             }
             .shadow(color: .green.opacity(0.5), radius: isSelected ? 8 : 4, y: 2)
-            .scaleEffect(isDragging ? 1.3 : 1.0)
+            .scaleEffect(appeared ? (isDragging ? 1.3 : 1.0) : 0.3)
         }
         .offset(dragOffset)
         .gesture(
@@ -480,6 +463,7 @@ struct DraggablePolygonMarker: View {
             : nil
         )
         .onTapGesture { onTap() }
+        .onAppear { withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) { appeared = true } }
     }
 }
 

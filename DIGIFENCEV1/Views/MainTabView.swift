@@ -188,7 +188,7 @@ struct AdminHomeView: View {
         VStack(alignment: .leading, spacing: DFSpacing.md) {
             DFSectionHeader(title: "Quick Actions", icon: "bolt.fill", iconColor: .orange)
             HStack(spacing: DFSpacing.md) {
-                QuickActionCard(icon: "shield.lefthalf.filled", title: "Security Team", color: .blue) {
+                QuickActionCard(icon: "qrcode.viewfinder", title: "Scan", color: .blue) {
                     selectedTab = 2
                 }
                 QuickActionCard(icon: "plus.circle.fill", title: "New Event", color: .green) {
