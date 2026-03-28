@@ -16,8 +16,18 @@ struct SecurityPerson: Identifiable {
     let id: String // uid
     let email: String
     let name: String
-    let assignedEventId: String?
-    var assignedEventTitle: String?
+    let assignedEventId: String?       // legacy single event
+    var assignedEventIds: [String]      // multi-event support
+    var assignedEventTitles: [String: String] // eventId -> title
+    
+    /// All effective event IDs (merges legacy single + new array)
+    var allEventIds: [String] {
+        var ids = assignedEventIds
+        if let legacy = assignedEventId, !legacy.isEmpty, !ids.contains(legacy) {
+            ids.insert(legacy, at: 0)
+        }
+        return ids
+    }
 }
 
 @MainActor
@@ -36,6 +46,13 @@ final class SecurityTeamViewModel: ObservableObject {
     @Published var selectedEventId: String?
     @Published var isCreating = false
     @Published var showCreatedSuccess = false
+    
+    // Assign event flow
+    @Published var showAssignSheet = false
+    @Published var assignTarget: SecurityPerson?
+    @Published var selectedAssignEventIds: Set<String> = []
+    @Published var isAssigning = false
+    @Published var showAssignSuccess = false
     
     // Reset password flow
     @Published var resetPassword: String?
@@ -63,20 +80,28 @@ final class SecurityTeamViewModel: ObservableObject {
                 guard let uid = item["uid"] as? String,
                       let email = item["email"] as? String,
                       let name = item["name"] as? String else { return nil }
+                let legacyEventId = item["assignedEventId"] as? String
+                let eventIds = item["assignedEventIds"] as? [String] ?? []
                 return SecurityPerson(
                     id: uid,
                     email: email,
                     name: name,
-                    assignedEventId: item["assignedEventId"] as? String
+                    assignedEventId: legacyEventId,
+                    assignedEventIds: eventIds,
+                    assignedEventTitles: [:]
                 )
             }
             
-            // Resolve event titles
+            // Resolve event titles for all assigned events
             for i in items.indices {
-                if let eventId = items[i].assignedEventId, !eventId.isEmpty {
+                var titles: [String: String] = [:]
+                for eventId in items[i].allEventIds {
                     let eventDoc = try? await db.collection("events").document(eventId).getDocument()
-                    items[i].assignedEventTitle = eventDoc?.data()?["title"] as? String
+                    if let title = eventDoc?.data()?["title"] as? String {
+                        titles[eventId] = title
+                    }
                 }
+                items[i].assignedEventTitles = titles
             }
             
             personnel = items
@@ -174,6 +199,35 @@ final class SecurityTeamViewModel: ObservableObject {
             errorMessage = extractMessage(from: error)
             showError = true
         }
+    }
+    
+    // MARK: - Assign Events
+    
+    func beginAssign(_ person: SecurityPerson) async {
+        assignTarget = person
+        selectedAssignEventIds = Set(person.allEventIds)
+        await fetchEvents()
+        showAssignSheet = true
+    }
+    
+    func saveAssignedEvents() async {
+        guard let person = assignTarget else { return }
+        isAssigning = true
+        do {
+            let newIds = Array(selectedAssignEventIds)
+            try await db.collection("users").document(person.id).updateData([
+                "assignedEventIds": newIds,
+                "assignedEventId": newIds.first as Any  // keep legacy field in sync
+            ])
+            HapticManager.shared.success()
+            showAssignSuccess = true
+            showAssignSheet = false
+            await fetchPersonnel()
+        } catch {
+            errorMessage = extractMessage(from: error)
+            showError = true
+        }
+        isAssigning = false
     }
     
     // MARK: - Helper

@@ -933,6 +933,7 @@ exports.createSecurityPersonnel = onCall(async (request) => {
       deviceId: null,
       fcmToken: null,
       assignedEventId: assignedEventId || null,
+      assignedEventIds: assignedEventId ? [assignedEventId] : [],
       createdByAdminId: adminUid,
       createdAt: FieldValue.serverTimestamp(),
     });
@@ -980,6 +981,7 @@ exports.listSecurityPersonnel = onCall(async (request) => {
     email: doc.data().email,
     name: doc.data().displayName,
     assignedEventId: doc.data().assignedEventId || null,
+    assignedEventIds: doc.data().assignedEventIds || [],
     createdAt: doc.data().createdAt,
   }));
 
@@ -1100,6 +1102,7 @@ exports.seedDefaultSecurity = onCall(async (request) => {
       deviceId: null,
       fcmToken: null,
       assignedEventId: null,
+      assignedEventIds: [],
       createdByAdminId: null,
       createdAt: FieldValue.serverTimestamp(),
     }, { merge: true });

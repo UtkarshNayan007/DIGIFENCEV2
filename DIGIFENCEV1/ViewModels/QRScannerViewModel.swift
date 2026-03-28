@@ -373,8 +373,11 @@ final class QRScannerViewModel: NSObject, ObservableObject {
             guard let data = userDoc.data() else { return false }
             let role = data["role"] as? String
             let assignedEventId = data["assignedEventId"] as? String
-            if role == "security" && assignedEventId == event.id {
-                return true
+            let assignedEventIds = data["assignedEventIds"] as? [String] ?? []
+            if role == "security" {
+                // Check multi-event array first, then legacy single field
+                if assignedEventIds.contains(event.id ?? "") { return true }
+                if assignedEventId == event.id { return true }
             }
         } catch {
             print("❌ Failed to check authorization: \(error.localizedDescription)")

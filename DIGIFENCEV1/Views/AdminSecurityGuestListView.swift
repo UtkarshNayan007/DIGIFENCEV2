@@ -55,7 +55,7 @@ struct AdminSecurityGuestListView: View {
             }
         }
         .onAppear {
-            viewModel.listenForScannedGuests(securityUid: securityPerson.id, eventId: securityPerson.assignedEventId)
+            viewModel.listenForScannedGuests(securityUid: securityPerson.id, eventId: nil)
         }
         .alert("Error", isPresented: $viewModel.showError) {
             Button("OK", role: .cancel) {}

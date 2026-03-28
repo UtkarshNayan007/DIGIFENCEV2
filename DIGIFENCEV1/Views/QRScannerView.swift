@@ -29,14 +29,6 @@ struct QRScannerView: View {
         }
         .navigationTitle("Scan Pass")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("Manual") {
-                    HapticManager.shared.light()
-                    showManualEntry = true
-                }
-            }
-        }
         .onAppear { viewModel.startScanning() }
         .onDisappear { viewModel.stopScanning() }
         .alert("Manual Entry", isPresented: $showManualEntry) {
@@ -87,6 +79,24 @@ struct QRScannerView: View {
                 Text("The scanner will automatically detect the pass")
                     .font(.system(size: 13))
                     .foregroundColor(.white.opacity(0.7))
+                
+                Button {
+                    HapticManager.shared.light()
+                    showManualEntry = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "keyboard")
+                            .font(.system(size: 14, weight: .medium))
+                        Text("Manual Entry")
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .foregroundColor(.dfAccent)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(Color.white.opacity(0.12))
+                    .clipShape(Capsule())
+                }
+                .padding(.top, DFSpacing.sm)
             }
             .padding(.bottom, 60)
         }

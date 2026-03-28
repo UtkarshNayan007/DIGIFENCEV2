@@ -66,18 +66,150 @@ struct AdminTabView: View {
     }
 }
 
-// MARK: - Security Tabs (single Check-In tab)
+// MARK: - Security Tabs (Check-In + Users)
 
 struct SecurityTabView: View {
     @Binding var selectedTab: Int
     var body: some View {
         TabView(selection: $selectedTab) {
-            NavigationStack { QRScannerView() }
-                .tabItem { Label("Check-In", systemImage: selectedTab == 0 ? "qrcode.viewfinder" : "qrcode") }
-                .tag(0)
-            NavigationStack { SecurityProfileView() }
-                .tabItem { Label("Profile", systemImage: selectedTab == 1 ? "person.fill" : "person") }
-                .tag(1)
+            NavigationStack {
+                QRScannerView()
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            SecurityProfileButton()
+                        }
+                    }
+            }
+            .tabItem { Label("Check-In", systemImage: selectedTab == 0 ? "qrcode.viewfinder" : "qrcode") }
+            .tag(0)
+            NavigationStack {
+                SecurityScannedUsersView()
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            SecurityProfileButton()
+                        }
+                    }
+            }
+            .tabItem { Label("Users", systemImage: selectedTab == 1 ? "person.2.fill" : "person.2") }
+            .tag(1)
+        }
+    }
+}
+
+// MARK: - Security Profile Button (toolbar)
+
+private struct SecurityProfileButton: View {
+    @State private var showProfile = false
+
+    var body: some View {
+        Button {
+            HapticManager.shared.light()
+            showProfile = true
+        } label: {
+            ProfileAvatarButton(name: FirebaseManager.shared.appUser?.displayName ?? "S")
+        }
+        .sheet(isPresented: $showProfile) {
+            SecurityProfileSheet()
+        }
+    }
+}
+
+// MARK: - Security Profile Sheet (matches admin profile flow)
+
+struct SecurityProfileSheet: View {
+    @ObservedObject var firebase = FirebaseManager.shared
+    @StateObject private var authVM = AuthViewModel()
+    @Environment(\.dismiss) private var dismiss
+    @State private var showSignOutConfirm = false
+    @State private var appeared = false
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: DFSpacing.xl) {
+                    // Avatar + Info
+                    VStack(spacing: DFSpacing.lg) {
+                        ZStack {
+                            Circle()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [.dfAccent.opacity(0.2), .blue.opacity(0.15)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .frame(width: 90, height: 90)
+                                .scaleEffect(appeared ? 1 : 0.5)
+                            Circle()
+                                .stroke(
+                                    LinearGradient(colors: [.dfAccent.opacity(0.5), .blue.opacity(0.3)], startPoint: .top, endPoint: .bottom),
+                                    lineWidth: 2
+                                )
+                                .frame(width: 90, height: 90)
+                            Image(systemName: "shield.checkered")
+                                .font(.system(size: 36, weight: .medium))
+                                .foregroundColor(.dfAccent)
+                                .scaleEffect(appeared ? 1 : 0.3)
+                        }
+                        VStack(spacing: 6) {
+                            Text(firebase.appUser?.displayName ?? "Security")
+                                .font(.system(size: 22, weight: .bold, design: .rounded))
+                            Text(firebase.appUser?.email ?? "")
+                                .font(.system(size: 13)).foregroundColor(.secondary)
+                            HStack(spacing: 8) {
+                                DFStatusBadge(text: "SECURITY", color: .dfAccent, size: .medium)
+                                if let created = firebase.appUser?.createdAt {
+                                    Text("Since \(created.dateValue().formatted(date: .abbreviated, time: .omitted))")
+                                        .font(.system(size: 10, weight: .medium))
+                                        .foregroundColor(Color(.tertiaryLabel))
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity).padding(.vertical, DFSpacing.xl)
+                    .background(Color(.secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.xl, style: .continuous))
+                    .opacity(appeared ? 1 : 0)
+
+                    // Account Info
+                    VStack(spacing: 0) {
+                        ProfileInfoRow(icon: "person.fill", iconColor: .blue, label: "Name", value: firebase.appUser?.displayName ?? "-")
+                        DFDivider(leadingInset: 50)
+                        ProfileInfoRow(icon: "envelope.fill", iconColor: .green, label: "Email", value: firebase.appUser?.email ?? "-")
+                        DFDivider(leadingInset: 50)
+                        ProfileInfoRow(icon: "shield.fill", iconColor: .dfAccent, label: "Role", value: "Security Personnel")
+                    }
+                    .background(Color(.secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.lg, style: .continuous))
+
+                    DFDestructiveButton(title: "Sign Out", icon: "rectangle.portrait.and.arrow.right") {
+                        showSignOutConfirm = true
+                    }
+
+                    Text("DigiFence v1.0")
+                        .font(.footnote)
+                        .foregroundColor(Color(.quaternaryLabel))
+                        .padding(.top, DFSpacing.sm)
+                }
+                .padding(.horizontal, DFSpacing.lg)
+                .padding(.top, DFSpacing.lg)
+                .padding(.bottom, 40)
+            }
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Profile")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") { dismiss() }.fontWeight(.semibold)
+                }
+            }
+            .confirmationDialog("Sign Out?", isPresented: $showSignOutConfirm, titleVisibility: .visible) {
+                Button("Sign Out", role: .destructive) { authVM.signOut(); dismiss() }
+                Button("Cancel", role: .cancel) {}
+            }
+            .onAppear {
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) { appeared = true }
+            }
         }
     }
 }

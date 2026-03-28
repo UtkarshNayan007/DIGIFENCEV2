@@ -42,6 +42,9 @@ struct SecurityTeamView: View {
                                     onDelete: {
                                         personToDelete = person
                                         showDeleteConfirm = true
+                                    },
+                                    onAssignEvents: {
+                                        Task { await viewModel.beginAssign(person) }
                                     }
                                 )
                                 .entranceAnimation(index: index)
@@ -75,10 +78,18 @@ struct SecurityTeamView: View {
         .sheet(isPresented: $viewModel.showCreateSheet) {
             CreateSecuritySheet(viewModel: viewModel)
         }
+        .sheet(isPresented: $viewModel.showAssignSheet) {
+            AssignEventsSheet(viewModel: viewModel)
+        }
         .alert("Account Created ✅", isPresented: $viewModel.showCreatedSuccess) {
             Button("OK") {}
         } message: {
             Text("Security personnel account created successfully. They can now log in with the credentials you provided.")
+        }
+        .alert("Events Updated ✅", isPresented: $viewModel.showAssignSuccess) {
+            Button("OK") {}
+        } message: {
+            Text("Event assignments updated successfully.")
         }
         .alert("Password Reset", isPresented: $viewModel.showResetAlert) {
             Button("Copy Password") {
@@ -114,6 +125,7 @@ private struct SecurityPersonRow: View {
     let person: SecurityPerson
     let onResetPassword: () -> Void
     let onDelete: () -> Void
+    let onAssignEvents: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -135,16 +147,7 @@ private struct SecurityPersonRow: View {
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
-                    if let eventTitle = person.assignedEventTitle {
-                        HStack(spacing: 4) {
-                            Image(systemName: "calendar.badge.checkmark")
-                                .font(.system(size: 9))
-                            Text(eventTitle)
-                                .font(.system(size: 11, weight: .medium))
-                        }
-                        .foregroundColor(.green)
-                        .lineLimit(1)
-                    } else {
+                    if person.allEventIds.isEmpty {
                         HStack(spacing: 4) {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .font(.system(size: 9))
@@ -152,10 +155,31 @@ private struct SecurityPersonRow: View {
                                 .font(.system(size: 11, weight: .medium))
                         }
                         .foregroundColor(.orange)
+                    } else {
+                        let titles = person.allEventIds.compactMap { person.assignedEventTitles[$0] }
+                        HStack(spacing: 4) {
+                            Image(systemName: "calendar.badge.checkmark")
+                                .font(.system(size: 9))
+                            Text(titles.isEmpty ? "\(person.allEventIds.count) event(s)" : titles.joined(separator: ", "))
+                                .font(.system(size: 11, weight: .medium))
+                                .lineLimit(1)
+                        }
+                        .foregroundColor(.green)
                     }
                 }
                 Spacer()
                 HStack(spacing: 8) {
+                    Button {
+                        HapticManager.shared.light()
+                        onAssignEvents()
+                    } label: {
+                        Image(systemName: "calendar.badge.plus")
+                            .font(.system(size: 14))
+                            .foregroundColor(.blue)
+                            .padding(8)
+                            .background(Color.blue.opacity(0.1))
+                            .clipShape(Circle())
+                    }
                     Button {
                         HapticManager.shared.light()
                         onResetPassword()
@@ -295,6 +319,109 @@ private struct CreateSecuritySheet: View {
                 }
             }
             .task { await viewModel.fetchEvents() }
+        }
+    }
+}
+
+// MARK: - Assign Events Sheet
+
+private struct AssignEventsSheet: View {
+    @ObservedObject var viewModel: SecurityTeamViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            ZStack {
+                Color(.systemGroupedBackground).ignoresSafeArea()
+                ScrollView {
+                    VStack(spacing: DFSpacing.xl) {
+                        // Header
+                        VStack(spacing: DFSpacing.lg) {
+                            DFIconBadge(icon: "calendar.badge.plus", color: .blue, size: 64, iconSize: 28)
+                            VStack(spacing: 4) {
+                                Text("Assign Events")
+                                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                                if let person = viewModel.assignTarget {
+                                    Text("Select events for \(person.name)")
+                                        .font(.system(size: 13))
+                                        .foregroundColor(.secondary)
+                                        .multilineTextAlignment(.center)
+                                }
+                            }
+                        }
+
+                        // Event list
+                        if viewModel.availableEvents.isEmpty {
+                            HStack(spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.orange)
+                                Text("No active events found")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.vertical, 8)
+                        } else {
+                            VStack(spacing: DFSpacing.sm) {
+                                ForEach(viewModel.availableEvents) { event in
+                                    let isSelected = viewModel.selectedAssignEventIds.contains(event.id ?? "")
+                                    Button {
+                                        HapticManager.shared.selection()
+                                        if isSelected {
+                                            viewModel.selectedAssignEventIds.remove(event.id ?? "")
+                                        } else {
+                                            viewModel.selectedAssignEventIds.insert(event.id ?? "")
+                                        }
+                                    } label: {
+                                        HStack(spacing: DFSpacing.sm) {
+                                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                                .font(.system(size: 22))
+                                                .foregroundColor(isSelected ? .green : .secondary)
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(event.title)
+                                                    .font(.system(size: 14, weight: .semibold))
+                                                    .foregroundColor(.primary)
+                                                if let code = event.eventCode {
+                                                    Text("Code: \(code)")
+                                                        .font(.system(size: 11, weight: .medium))
+                                                        .foregroundColor(.secondary)
+                                                }
+                                            }
+                                            Spacer()
+                                        }
+                                        .padding(DFSpacing.md)
+                                        .background(
+                                            isSelected
+                                                ? Color.green.opacity(0.08)
+                                                : Color(.tertiarySystemGroupedBackground)
+                                        )
+                                        .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.sm, style: .continuous))
+                                    }
+                                }
+                            }
+                        }
+
+                        DFPrimaryButton(
+                            title: "Save Assignments",
+                            icon: "checkmark.circle.fill",
+                            isLoading: viewModel.isAssigning,
+                            colors: [.blue, .dfAccent]
+                        ) {
+                            Task { await viewModel.saveAssignedEvents() }
+                        }
+
+                        Spacer()
+                    }
+                    .padding(.horizontal, DFSpacing.xl)
+                    .padding(.top, DFSpacing.xl)
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
         }
     }
 }

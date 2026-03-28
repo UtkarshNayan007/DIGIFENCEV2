@@ -18,6 +18,7 @@ struct AppUser: Codable, Identifiable {
     var deviceId: String?
     var fcmToken: String?
     var assignedEventId: String?
+    var assignedEventIds: [String]?
     var createdByAdminId: String?
     @ServerTimestamp var createdAt: Timestamp?
     
@@ -32,7 +33,7 @@ struct AppUser: Codable, Identifiable {
     }
     
     enum CodingKeys: String, CodingKey {
-        case id, email, displayName, phoneNumber, role, publicKey, deviceId, fcmToken, assignedEventId, createdByAdminId, createdAt
+        case id, email, displayName, phoneNumber, role, publicKey, deviceId, fcmToken, assignedEventId, assignedEventIds, createdByAdminId, createdAt
     }
     
     init(from decoder: Decoder) throws {
@@ -46,6 +47,7 @@ struct AppUser: Codable, Identifiable {
         deviceId = try container.decodeIfPresent(String.self, forKey: .deviceId)
         fcmToken = try container.decodeIfPresent(String.self, forKey: .fcmToken)
         assignedEventId = try container.decodeIfPresent(String.self, forKey: .assignedEventId)
+        assignedEventIds = try container.decodeIfPresent([String].self, forKey: .assignedEventIds)
         createdByAdminId = try container.decodeIfPresent(String.self, forKey: .createdByAdminId)
         _createdAt = try container.decodeIfPresent(ServerTimestamp<Timestamp>.self, forKey: .createdAt) ?? ServerTimestamp(wrappedValue: nil)
     }
