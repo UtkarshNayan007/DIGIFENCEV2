@@ -14,6 +14,7 @@ struct Event: Codable, Identifiable {
     @DocumentID var id: String?
     let title: String
     var description: String?
+    var eventCode: String?
     let polygonCoordinates: [GeoPoint_DF]
     let organizerId: String
     var capacity: Int?
@@ -57,6 +58,7 @@ struct Event: Codable, Identifiable {
         id: String? = nil,
         title: String,
         description: String? = nil,
+        eventCode: String? = nil,
         polygonCoordinates: [GeoPoint_DF],
         organizerId: String,
         capacity: Int? = nil,
@@ -71,6 +73,7 @@ struct Event: Codable, Identifiable {
     ) {
         self.title = title
         self.description = description
+        self.eventCode = eventCode
         self.polygonCoordinates = polygonCoordinates
         self.organizerId = organizerId
         self.capacity = capacity

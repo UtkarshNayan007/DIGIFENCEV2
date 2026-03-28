@@ -159,6 +159,11 @@ final class AdminViewModel: ObservableObject {
         polygonPoints.removeAll()
     }
     
+    func updatePolygonPoint(at index: Int, to coordinate: CLLocationCoordinate2D) {
+        guard index >= 0 && index < polygonPoints.count else { return }
+        polygonPoints[index] = coordinate
+    }
+    
     var isPolygonValid: Bool {
         polygonPoints.count >= 3 && !isPolygonSelfIntersecting
     }
@@ -219,9 +224,13 @@ final class AdminViewModel: ObservableObject {
                 ["lat": coord.latitude, "lng": coord.longitude]
             }
             
+            // Generate unique event code
+            let eventCode = generateEventCode()
+            
             var eventData: [String: Any] = [
                 "title": title,
                 "description": description,
+                "eventCode": eventCode,
                 "polygonCoordinates": polygonData,
                 "organizerId": uid,
                 "capacity": capacity,
@@ -250,7 +259,7 @@ final class AdminViewModel: ObservableObject {
                 try await docRef.updateData(["thumbnailURL": thumbnailURL])
             }
             
-            successMessage = "Event '\(title)' created successfully!"
+            successMessage = "Event '\(title)' created!\nEvent Code: \(eventCode)"
             showSuccess = true
             resetForm()
             
@@ -260,6 +269,12 @@ final class AdminViewModel: ObservableObject {
         }
         
         isLoading = false
+    }
+    
+    /// Generate a unique 6-character event code
+    private func generateEventCode() -> String {
+        let characters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        return String((0..<6).map { _ in characters.randomElement()! })
     }
     
     // MARK: - Listen to My Events
@@ -350,10 +365,117 @@ final class AdminViewModel: ObservableObject {
         }
     }
     
+    // MARK: - Pass Control: Search & Deactivate
+    
+    @Published var allTicketsFlat: [Ticket] = []
+    @Published var ticketOwnerNames: [String: String] = [:] // ownerId -> displayName
+    @Published var ticketOwnerEmails: [String: String] = [:] // ownerId -> email
+    @Published var ticketEventNames: [String: String] = [:] // eventId -> title
+    
+    /// Deactivated-by-admin status (separate from expired)
+    @Published var deactivatedTicketIds: Set<String> = []
+    
+    /// Loads all tickets across all admin events for pass control
+    func loadAllTicketsForPassControl() async {
+        guard let uid = firebase.currentUser?.uid else { return }
+        isLoading = true
+        do {
+            let eventsSnap = try await firebase.eventsCollection
+                .whereField("organizerId", isEqualTo: uid)
+                .getDocuments()
+            
+            var tickets: [Ticket] = []
+            var eventNames: [String: String] = [:]
+            
+            for doc in eventsSnap.documents {
+                let eventId = doc.documentID
+                let eventTitle = doc.data()["title"] as? String ?? "Unknown"
+                eventNames[eventId] = eventTitle
+                
+                let ticketsSnap = try await firebase.ticketsCollection
+                    .whereField("eventId", isEqualTo: eventId)
+                    .getDocuments()
+                
+                let eventTickets = ticketsSnap.documents.compactMap { try? $0.data(as: Ticket.self) }
+                tickets.append(contentsOf: eventTickets)
+            }
+            
+            ticketEventNames = eventNames
+            allTicketsFlat = tickets.sorted {
+                ($0.createdAt?.dateValue() ?? .distantPast) > ($1.createdAt?.dateValue() ?? .distantPast)
+            }
+            
+            // Fetch owner names
+            let ownerIds = Set(tickets.map { $0.ownerId })
+            for ownerId in ownerIds {
+                if ticketOwnerNames[ownerId] != nil { continue }
+                let userDoc = try? await firebase.usersCollection.document(ownerId).getDocument()
+                if let data = userDoc?.data() {
+                    ticketOwnerNames[ownerId] = data["displayName"] as? String ?? data["email"] as? String ?? ownerId
+                }
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+            showError = true
+        }
+        isLoading = false
+    }
+    
+    /// Fetch owner names for a specific event's tickets
+    func fetchOwnerNamesForEvent(eventId: String) async {
+        let tickets = eventTickets[eventId] ?? []
+        let ownerIds = Set(tickets.map { $0.ownerId })
+        for ownerId in ownerIds {
+            if ticketOwnerNames[ownerId] != nil { continue }
+            do {
+                let userDoc = try await firebase.usersCollection.document(ownerId).getDocument()
+                if let data = userDoc.data() {
+                    let name = data["displayName"] as? String ?? data["email"] as? String ?? ownerId
+                    let email = data["email"] as? String ?? ""
+                    ticketOwnerNames[ownerId] = name
+                    ticketOwnerEmails[ownerId] = email
+                }
+            } catch {
+                ticketOwnerNames[ownerId] = String(ownerId.prefix(8)) + "..."
+            }
+        }
+    }
+    
+    /// Deactivate a specific ticket by admin
+    func deactivateTicket(ticketId: String) async {
+        isLoading = true
+        do {
+            // Direct Firestore update since admin has server-level access via rules
+            // The cloud function handles logging, but for admin direct deactivation:
+            let ticketRef = firebase.ticketsCollection.document(ticketId)
+            try await ticketRef.updateData([
+                "status": "expired",
+                "insideFence": false,
+                "biometricVerified": false
+            ])
+            
+            // Log the deactivation
+            try await Firestore.firestore().collection("attendance_logs").addDocument(data: [
+                "ticketId": ticketId,
+                "type": "expired",
+                "detail": ["reason": "admin_deactivated", "deactivatedBy": firebase.currentUser?.uid ?? ""],
+                "timestamp": FieldValue.serverTimestamp()
+            ])
+            
+            deactivatedTicketIds.insert(ticketId)
+            HapticManager.shared.success()
+        } catch {
+            errorMessage = error.localizedDescription
+            showError = true
+            HapticManager.shared.error()
+        }
+        isLoading = false
+    }
+    
     // MARK: - Dashboard Computed Properties
     
-    func activeGuestCount(for eventId: String) -> Int { eventTickets[eventId]?.filter { $0.status == .active }.count ?? 0 }
-    func pendingCount(for eventId: String) -> Int { eventTickets[eventId]?.filter { $0.status == .pending }.count ?? 0 }
+    func activeGuestCount(for eventId: String) -> Int { eventTickets[eventId]?.filter { $0.status == .active && $0.qrScanned == true }.count ?? 0 }
+    func pendingCount(for eventId: String) -> Int { eventTickets[eventId]?.filter { $0.status == .pending || ($0.status == .active && $0.qrScanned != true) }.count ?? 0 }
     func expiredCount(for eventId: String) -> Int { eventTickets[eventId]?.filter { $0.status == .expired }.count ?? 0 }
     func totalTickets(for eventId: String) -> Int { eventTickets[eventId]?.count ?? 0 }
     func insideFenceCount(for eventId: String) -> Int { eventTickets[eventId]?.filter { $0.insideFence }.count ?? 0 }
@@ -362,14 +484,95 @@ final class AdminViewModel: ObservableObject {
     
     func toggleEventActive(event: Event) async {
         guard let eventId = event.id else { return }
+        let newActiveState = !event.isActive
         do {
             try await firebase.eventsCollection.document(eventId).updateData([
-                "isActive": !event.isActive
+                "isActive": newActiveState
             ])
+            
+            // If deactivating the event, expire all active/pending tickets
+            if !newActiveState {
+                let ticketsSnap = try await firebase.ticketsCollection
+                    .whereField("eventId", isEqualTo: eventId)
+                    .getDocuments()
+                
+                let batch = Firestore.firestore().batch()
+                var expiredCount = 0
+                
+                for doc in ticketsSnap.documents {
+                    let status = doc.data()["status"] as? String ?? ""
+                    if status == "active" || status == "pending" {
+                        batch.updateData([
+                            "status": "expired",
+                            "insideFence": false,
+                            "biometricVerified": false
+                        ], forDocument: doc.reference)
+                        
+                        // Log the termination
+                        let logRef = Firestore.firestore().collection("attendance_logs").document()
+                        batch.setData([
+                            "ticketId": doc.documentID,
+                            "type": "expired",
+                            "detail": ["reason": "event_ended", "eventTitle": event.title],
+                            "timestamp": FieldValue.serverTimestamp()
+                        ], forDocument: logRef)
+                        
+                        expiredCount += 1
+                    }
+                }
+                
+                if expiredCount > 0 {
+                    try await batch.commit()
+                    print("✅ Expired \(expiredCount) ticket(s) for deactivated event '\(event.title)'")
+                }
+            }
         } catch {
             errorMessage = error.localizedDescription
             showError = true
         }
+    }
+    
+    // MARK: - Delete Event
+    
+    func deleteEvent(eventId: String) async {
+        isLoading = true
+        do {
+            // Delete all tickets for this event
+            let ticketsSnap = try await firebase.ticketsCollection
+                .whereField("eventId", isEqualTo: eventId)
+                .getDocuments()
+            for doc in ticketsSnap.documents {
+                try await doc.reference.delete()
+            }
+            // Delete the event
+            try await firebase.eventsCollection.document(eventId).delete()
+            HapticManager.shared.success()
+        } catch {
+            errorMessage = error.localizedDescription
+            showError = true
+        }
+        isLoading = false
+    }
+    
+    // MARK: - Update Event
+    
+    func updateEvent(eventId: String, title: String, description: String, startsAt: Date, endsAt: Date, isActive: Bool) async {
+        isLoading = true
+        do {
+            try await firebase.eventsCollection.document(eventId).updateData([
+                "title": title,
+                "description": description,
+                "startsAt": Timestamp(date: startsAt),
+                "endsAt": Timestamp(date: endsAt),
+                "isActive": isActive
+            ])
+            successMessage = "Event updated."
+            showSuccess = true
+        } catch {
+            errorMessage = error.localizedDescription
+            showError = true
+        }
+        isLoading = false
     }
     
     // MARK: - Validation

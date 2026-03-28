@@ -27,6 +27,10 @@
 	<string>DigiFence needs photo library access to select event images.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>DigiFence uses Face ID for secure biometric ticket activation.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>DigiFence can save events to your calendar with reminders so you never miss an event.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>DigiFence can save events to your calendar with reminders so you never miss an event.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>

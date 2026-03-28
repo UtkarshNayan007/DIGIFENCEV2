@@ -53,6 +53,9 @@ final class TicketViewModel: ObservableObject {
         isLoading = true
         
         do {
+            // Generate unique QR token for this pass
+            let qrToken = QRCodeGenerator.generatePassToken(eventId: eventId, userId: uid)
+            
             let ticketData: [String: Any] = [
                 "eventId": eventId,
                 "ownerId": uid,
@@ -61,10 +64,15 @@ final class TicketViewModel: ObservableObject {
                 "insideFence": false,
                 "activatedAt": NSNull(),
                 "entryCode": NSNull(),
+                "qrToken": qrToken,
+                "qrScanned": false,
+                "scannedAt": NSNull(),
                 "createdAt": FieldValue.serverTimestamp()
             ]
             
             let docRef = try await firebase.ticketsCollection.addDocument(data: ticketData)
+            
+            // ticketsSold is incremented server-side by the onTicketCreated trigger
             
             // Start monitoring this event's geofence
             locationManager.startPolygonMonitoring(for: event, ticketId: docRef.documentID)

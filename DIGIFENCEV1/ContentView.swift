@@ -2,7 +2,7 @@
 //  ContentView.swift
 //  DIGIFENCEV1
 //
-//  Root view: routes between Onboarding → Login → Biometric Lock → MainTabView.
+//  Root routing: Onboarding → Login → Biometric Lock → MainTabView.
 //
 
 import SwiftUI
@@ -11,142 +11,126 @@ import FirebaseAuth
 struct ContentView: View {
     @ObservedObject private var firebase = FirebaseManager.shared
     @State private var hasCompletedOnboarding = UserDefaults.standard.bool(forKey: "DigiFence_OnboardingComplete")
-    
+
     var body: some View {
         Group {
             if firebase.isLoading {
-                // Loading / Splash state
-                splashView
+                SplashView()
             } else if !hasCompletedOnboarding {
                 OnboardingView(hasCompletedOnboarding: $hasCompletedOnboarding)
             } else if firebase.currentUser == nil {
-                // Not signed in
                 LoginView()
             } else if !firebase.isBiometricAuthenticated {
-                // Signed in but not biometric-verified (app relaunch)
                 BiometricLockView()
             } else {
                 MainTabView()
             }
         }
-        .animation(.easeInOut(duration: 0.3), value: firebase.isLoggedIn)
-        .animation(.easeInOut(duration: 0.3), value: firebase.isBiometricAuthenticated)
-        .animation(.easeInOut(duration: 0.3), value: hasCompletedOnboarding)
+        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: firebase.isLoggedIn)
+        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: firebase.isBiometricAuthenticated)
+        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: hasCompletedOnboarding)
     }
-    
-    private var splashView: some View {
+}
+
+// MARK: - Splash
+
+struct SplashView: View {
+    @State private var appeared = false
+
+    var body: some View {
         ZStack {
-            Color(red: 0.05, green: 0.05, blue: 0.12)
-                .ignoresSafeArea()
-            
-            VStack(spacing: 20) {
-                Image("AppLogo")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 100, height: 100)
-                    .clipShape(RoundedRectangle(cornerRadius: 20))
-                
-                Text("DigiFence")
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                
+            Color(.systemBackground).ignoresSafeArea()
+            VStack(spacing: DFSpacing.xl) {
+                DFAnimatedLogo(size: 88, cornerRadius: 22)
+                VStack(spacing: DFSpacing.sm) {
+                    Text("DigiFence")
+                        .font(.system(size: 30, weight: .bold, design: .rounded))
+                    Text("Secure Event Access")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .opacity(appeared ? 1 : 0)
                 ProgressView()
-                    .tint(.cyan)
+                    .controlSize(.regular)
+                    .tint(.dfAccent)
+                    .padding(.top, DFSpacing.md)
+                    .opacity(appeared ? 1 : 0)
             }
+        }
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.5).delay(0.2)) { appeared = true }
         }
     }
 }
 
-// MARK: - Biometric Lock Screen
+// MARK: - Biometric Lock
 
-/// Shown when the user is Firebase-authenticated but hasn't passed biometric MFA
-/// (e.g., app relaunch, returning from background).
 struct BiometricLockView: View {
     @StateObject private var authVM = AuthViewModel()
     @ObservedObject private var firebase = FirebaseManager.shared
     @State private var isAuthenticating = false
     @State private var showSignOutConfirm = false
     @State private var hasAttemptedAutoUnlock = false
-    
+    @State private var appeared = false
+
     private let biometric = BiometricAuthManager.shared
-    
+
     var body: some View {
         ZStack {
-            Color(red: 0.05, green: 0.05, blue: 0.12)
-                .ignoresSafeArea()
-            
-            VStack(spacing: 30) {
+            Color(.systemBackground).ignoresSafeArea()
+
+            VStack(spacing: DFSpacing.xxl) {
                 Spacer()
-                
-                Image("AppLogo")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 80, height: 80)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                
-                VStack(spacing: 8) {
+
+                DFAnimatedLogo(size: 80, cornerRadius: 20)
+
+                VStack(spacing: DFSpacing.sm) {
                     Text("Welcome Back")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
-                    
+                        .font(.system(size: 26, weight: .bold, design: .rounded))
                     Text(firebase.currentUser?.email ?? "")
-                        .font(.system(size: 15))
-                        .foregroundColor(.white.opacity(0.5))
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
                 }
-                
+                .opacity(appeared ? 1 : 0)
+
                 Text("Authenticate to continue")
-                    .font(.system(size: 14))
-                    .foregroundColor(.white.opacity(0.4))
-                
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Color(.tertiaryLabel))
+                    .opacity(appeared ? 1 : 0)
+
                 Spacer()
-                
-                // Unlock button
-                Button(action: {
-                    Task {
-                        isAuthenticating = true
-                        await authVM.unlockWithBiometrics()
-                        isAuthenticating = false
-                    }
-                }) {
-                    HStack(spacing: 12) {
-                        if isAuthenticating {
-                            ProgressView().tint(.white)
-                        } else {
-                            Image(systemName: biometric.biometricType == .faceID ? "faceid" : "touchid")
-                                .font(.system(size: 22))
-                            Text("Unlock with \(biometric.biometricName)")
-                                .font(.system(size: 17, weight: .semibold))
+
+                VStack(spacing: DFSpacing.lg) {
+                    DFPrimaryButton(
+                        title: "Unlock with \(biometric.biometricName)",
+                        icon: biometric.biometricType == .faceID ? "faceid" : "touchid",
+                        isLoading: isAuthenticating
+                    ) {
+                        Task {
+                            isAuthenticating = true
+                            await authVM.unlockWithBiometrics()
+                            isAuthenticating = false
                         }
                     }
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .background(
-                        LinearGradient(
-                            colors: [.cyan, .blue],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .padding(.horizontal, DFSpacing.xl)
+
+                    Button("Sign Out") {
+                        HapticManager.shared.light()
+                        showSignOutConfirm = true
+                    }
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.secondary)
                 }
-                .disabled(isAuthenticating)
-                .padding(.horizontal, 24)
-                
-                // Sign out option
-                Button("Sign Out") {
-                    showSignOutConfirm = true
-                }
-                .font(.system(size: 15))
-                .foregroundColor(.white.opacity(0.5))
-                .padding(.bottom, 30)
+                .opacity(appeared ? 1 : 0)
+                .padding(.bottom, DFSpacing.xxxl)
             }
         }
         .onAppear {
-            // Auto-trigger biometric once on appear (not on re-renders)
+            withAnimation(.easeOut(duration: 0.4).delay(0.1)) { appeared = true }
             guard !hasAttemptedAutoUnlock else { return }
             hasAttemptedAutoUnlock = true
             Task {
+                try? await Task.sleep(nanoseconds: 400_000_000)
                 isAuthenticating = true
                 await authVM.unlockWithBiometrics()
                 isAuthenticating = false
@@ -154,22 +138,14 @@ struct BiometricLockView: View {
         }
         .alert("Error", isPresented: $authVM.showError) {
             Button("Try Again") {
-                Task {
-                    isAuthenticating = true
-                    await authVM.unlockWithBiometrics()
-                    isAuthenticating = false
-                }
+                Task { isAuthenticating = true; await authVM.unlockWithBiometrics(); isAuthenticating = false }
             }
-            Button("Sign Out", role: .destructive) {
-                authVM.signOut()
-            }
+            Button("Sign Out", role: .destructive) { authVM.signOut() }
         } message: {
             Text(authVM.errorMessage ?? "Authentication failed.")
         }
         .confirmationDialog("Sign Out?", isPresented: $showSignOutConfirm, titleVisibility: .visible) {
-            Button("Sign Out", role: .destructive) {
-                authVM.signOut()
-            }
+            Button("Sign Out", role: .destructive) { authVM.signOut() }
             Button("Cancel", role: .cancel) {}
         }
     }

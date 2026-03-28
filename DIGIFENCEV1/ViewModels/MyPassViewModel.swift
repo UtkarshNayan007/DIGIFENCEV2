@@ -20,6 +20,7 @@ final class MyPassViewModel: ObservableObject {
     @Published var errorMessage: String?
     
     private var ticketListener: ListenerRegistration?
+    private var eventListeners: [String: ListenerRegistration] = [:]
     private let firebase = FirebaseManager.shared
     
     // MARK: - Real-time Listener
@@ -49,32 +50,40 @@ final class MyPassViewModel: ObservableObject {
                     try? doc.data(as: Ticket.self)
                 }
                 
-                // Fetch associated events
-                Task { await self.fetchEvents() }
+                // Listen to associated events (live updates)
+                self.listenToEvents()
             }
     }
     
     func stopListening() {
         ticketListener?.remove()
         ticketListener = nil
+        for (_, listener) in eventListeners { listener.remove() }
+        eventListeners.removeAll()
     }
     
-    // MARK: - Fetch Events for Tickets
+    // MARK: - Live Event Listeners
     
-    private func fetchEvents() async {
+    private func listenToEvents() {
         let eventIds = Set(tickets.map { $0.eventId })
         
+        // Remove listeners for events no longer needed
+        for (eid, listener) in eventListeners where !eventIds.contains(eid) {
+            listener.remove()
+            eventListeners.removeValue(forKey: eid)
+        }
+        
+        // Add listeners for new events
         for eventId in eventIds {
-            if ticketEvents[eventId] != nil { continue }
-            
-            do {
-                let doc = try await firebase.eventsCollection.document(eventId).getDocument()
-                if let event = try? doc.data(as: Event.self) {
-                    ticketEvents[eventId] = event
+            if eventListeners[eventId] != nil { continue }
+            let listener = firebase.eventsCollection.document(eventId)
+                .addSnapshotListener { [weak self] snapshot, error in
+                    guard let self = self, let snapshot = snapshot else { return }
+                    if let event = try? snapshot.data(as: Event.self) {
+                        self.ticketEvents[eventId] = event
+                    }
                 }
-            } catch {
-                print("❌ Failed to fetch event \(eventId): \(error.localizedDescription)")
-            }
+            eventListeners[eventId] = listener
         }
     }
     
@@ -98,5 +107,6 @@ final class MyPassViewModel: ObservableObject {
     
     deinit {
         ticketListener?.remove()
+        for (_, listener) in eventListeners { listener.remove() }
     }
 }

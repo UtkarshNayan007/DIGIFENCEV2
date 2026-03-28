@@ -24,6 +24,7 @@ final class AuthViewModel: ObservableObject {
     @Published var email = ""
     @Published var password = ""
     @Published var displayName = ""
+    @Published var phoneNumber = ""
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var showError = false
@@ -35,6 +36,22 @@ final class AuthViewModel: ObservableObject {
     private let firebase = FirebaseManager.shared
     private let secureEnclave = SecureEnclaveManager.shared
     private let biometricAuth = BiometricAuthManager.shared
+    
+    // MARK: - Phone Number Validation
+    
+    func isValidPhoneNumber(_ phone: String) -> Bool {
+        // Remove spaces, dashes, and parentheses for validation
+        let cleanedPhone = phone.replacingOccurrences(of: "[\\s\\-\\(\\)]", with: "", options: .regularExpression)
+        // Check for valid phone number format (10-15 digits, optionally starting with +)
+        let phoneRegex = "^\\+?[0-9]{10,15}$"
+        let phonePredicate = NSPredicate(format: "SELF MATCHES %@", phoneRegex)
+        return phonePredicate.evaluate(with: cleanedPhone)
+    }
+    
+    func formatPhoneNumber(_ phone: String) -> String {
+        // Clean and format phone number for storage
+        return phone.replacingOccurrences(of: "[\\s\\-\\(\\)]", with: "", options: .regularExpression)
+    }
     
     // MARK: - Email Sign Up
     
@@ -50,11 +67,13 @@ final class AuthViewModel: ObservableObject {
             let result = try await firebase.auth.createUser(withEmail: email, password: password)
             let uid = result.user.uid
             
-            // Step 2: Create user document in Firestore
+            // Step 2: Create user document in Firestore with phone number
+            let formattedPhone = phoneNumber.isEmpty ? nil : formatPhoneNumber(phoneNumber)
             try await firebase.createUserDocument(
                 uid: uid,
                 email: email,
-                displayName: displayName.isEmpty ? email : displayName
+                displayName: displayName.isEmpty ? email : displayName,
+                phoneNumber: formattedPhone
             )
             
             // Step 3: Send email verification
@@ -101,7 +120,19 @@ final class AuthViewModel: ObservableObject {
                 return
             }
             
-            // Step 3: Biometric MFA
+            // Step 3: Check if security personnel (skip biometric MFA)
+            let userDoc = try await firebase.usersCollection.document(result.user.uid).getDocument()
+            let userRole = userDoc.data()?["role"] as? String ?? "user"
+            
+            if userRole == "security" {
+                // Security personnel — skip biometric MFA and key generation
+                firebase.isBiometricAuthenticated = true
+                Task { await PushManager.shared.requestPermission() }
+                isLoading = false
+                return
+            }
+            
+            // Step 4: Biometric MFA (for admin and user roles)
             let biometricPassed = await performBiometricMFA()
             guard biometricPassed else {
                 // Biometric failed — sign out
@@ -110,15 +141,15 @@ final class AuthViewModel: ObservableObject {
                 return
             }
             
-            // Step 4: Mark biometric authenticated
+            // Step 5: Mark biometric authenticated
             firebase.isBiometricAuthenticated = true
             
-            // Step 5: Generate Secure Enclave key if needed
+            // Step 6: Generate Secure Enclave key if needed
             if !secureEnclave.hasExistingKey() {
                 await generateAndUploadKey()
             }
             
-            // Step 6: Request push notification permission
+            // Step 7: Request push notification permission
             Task { await PushManager.shared.requestPermission() }
             
         } catch {
@@ -355,6 +386,12 @@ final class AuthViewModel: ObservableObject {
         }
         if password.count < 6 {
             errorMessage = "Password must be at least 6 characters."
+            showError = true
+            return false
+        }
+        // Validate phone number if provided
+        if !phoneNumber.isEmpty && !isValidPhoneNumber(phoneNumber) {
+            errorMessage = "Please enter a valid phone number (10-15 digits)."
             showError = true
             return false
         }

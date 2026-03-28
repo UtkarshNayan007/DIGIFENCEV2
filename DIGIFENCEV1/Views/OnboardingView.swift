@@ -2,7 +2,7 @@
 //  OnboardingView.swift
 //  DIGIFENCEV1
 //
-//  Multi-page onboarding with SF Symbol illustrations.
+//  Clean, minimal onboarding with fluid page transitions.
 //
 
 import SwiftUI
@@ -10,134 +10,127 @@ import SwiftUI
 struct OnboardingView: View {
     @StateObject private var viewModel = OnboardingViewModel()
     @Binding var hasCompletedOnboarding: Bool
-    
+
     var body: some View {
         ZStack {
-            // Background gradient
-            LinearGradient(
-                colors: [
-                    Color(red: 0.05, green: 0.05, blue: 0.15),
-                    Color(red: 0.1, green: 0.05, blue: 0.2)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-            
+            Color(.systemBackground).ignoresSafeArea()
+
             VStack(spacing: 0) {
-                // Page content
                 TabView(selection: $viewModel.currentPage) {
                     ForEach(Array(viewModel.pages.enumerated()), id: \.offset) { index, page in
-                        VStack(spacing: 30) {
-                            Spacer()
-                            
-                            // Icon with animated glow
-                            ZStack {
-                                Circle()
-                                    .fill(
-                                        RadialGradient(
-                                            colors: [
-                                                Color.cyan.opacity(0.3),
-                                                Color.clear
-                                            ],
-                                            center: .center,
-                                            startRadius: 30,
-                                            endRadius: 100
-                                        )
-                                    )
-                                    .frame(width: 200, height: 200)
-                                
-                                if page.icon == "AppLogo" {
-                                    Image("AppLogo")
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fit)
-                                        .frame(width: 100, height: 100)
-                                        .clipShape(RoundedRectangle(cornerRadius: 20))
-                                } else {
-                                    Image(systemName: page.icon)
-                                        .font(.system(size: 70, weight: .light))
-                                        .foregroundStyle(
-                                            LinearGradient(
-                                                colors: [.cyan, .blue],
-                                                startPoint: .topLeading,
-                                                endPoint: .bottomTrailing
-                                            )
-                                        )
-                                }
-                            }
-                            
-                            VStack(spacing: 16) {
-                                Text(page.title)
-                                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                                    .foregroundColor(.white)
-                                    .multilineTextAlignment(.center)
-                                
-                                Text(page.description)
-                                    .font(.system(size: 16, weight: .regular))
-                                    .foregroundColor(.white.opacity(0.7))
-                                    .multilineTextAlignment(.center)
-                                    .padding(.horizontal, 40)
-                            }
-                            
-                            Spacer()
-                            Spacer()
-                        }
-                        .tag(index)
+                        OnboardingPageView(page: page).tag(index)
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
-                
-                // Page indicators
-                HStack(spacing: 8) {
-                    ForEach(0..<viewModel.pages.count, id: \.self) { index in
-                        Capsule()
-                            .fill(index == viewModel.currentPage ? Color.cyan : Color.white.opacity(0.3))
-                            .frame(width: index == viewModel.currentPage ? 24 : 8, height: 8)
-                            .animation(.easeInOut(duration: 0.3), value: viewModel.currentPage)
-                    }
+                .onChange(of: viewModel.currentPage) { HapticManager.shared.selection() }
+
+                bottomControls
+            }
+        }
+    }
+
+    // MARK: - Bottom Controls
+
+    private var bottomControls: some View {
+        VStack(spacing: DFSpacing.xl) {
+            // Page dots
+            HStack(spacing: 10) {
+                ForEach(0..<viewModel.pages.count, id: \.self) { i in
+                    Capsule()
+                        .fill(i == viewModel.currentPage ? Color.dfAccent : Color(.systemGray4))
+                        .frame(width: i == viewModel.currentPage ? 28 : 8, height: 8)
+                        .animation(.spring(response: 0.35, dampingFraction: 0.7), value: viewModel.currentPage)
                 }
-                .padding(.bottom, 30)
-                
-                // Button
-                Button(action: {
-                    withAnimation {
-                        if viewModel.isLastPage {
-                            viewModel.completeOnboarding()
-                            hasCompletedOnboarding = true
-                        } else {
-                            viewModel.nextPage()
-                        }
-                    }
-                }) {
-                    Text(viewModel.isLastPage ? "Get Started" : "Next")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .background(
-                            LinearGradient(
-                                colors: [.cyan, .blue],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 16)
-                
-                // Skip button
-                if !viewModel.isLastPage {
-                    Button("Skip") {
+            }
+
+            DFPrimaryButton(
+                title: viewModel.isLastPage ? "Get Started" : "Continue",
+                icon: viewModel.isLastPage ? "arrow.right.circle.fill" : nil
+            ) {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                    if viewModel.isLastPage {
                         viewModel.completeOnboarding()
                         hasCompletedOnboarding = true
+                    } else {
+                        viewModel.nextPage()
                     }
-                    .font(.system(size: 15))
-                    .foregroundColor(.white.opacity(0.5))
                 }
-                
-                Spacer().frame(height: 20)
             }
+            .padding(.horizontal, DFSpacing.xl)
+
+            if !viewModel.isLastPage {
+                Button("Skip") {
+                    HapticManager.shared.light()
+                    viewModel.completeOnboarding()
+                    hasCompletedOnboarding = true
+                }
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(.secondary)
+            }
+
+            Spacer().frame(height: DFSpacing.xl)
+        }
+    }
+}
+
+// MARK: - Onboarding Page
+
+struct OnboardingPageView: View {
+    let page: OnboardingPage
+    @State private var appeared = false
+
+    var body: some View {
+        VStack(spacing: DFSpacing.xxxl) {
+            Spacer()
+
+            // Icon
+            ZStack {
+                Circle()
+                    .fill(Color.dfAccent.opacity(0.06))
+                    .frame(width: 200, height: 200)
+
+                Circle()
+                    .fill(Color.dfAccent.opacity(0.1))
+                    .frame(width: 140, height: 140)
+
+                if page.icon == "AppLogo" {
+                    Image("AppLogo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 80, height: 80)
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .shadow(color: .cyan.opacity(0.3), radius: 12, y: 6)
+                } else {
+                    Image(systemName: page.icon)
+                        .font(.system(size: 60, weight: .light))
+                        .foregroundStyle(DFGradients.accent)
+                }
+            }
+            .scaleEffect(appeared ? 1.0 : 0.4)
+            .opacity(appeared ? 1.0 : 0)
+
+            // Text
+            VStack(spacing: DFSpacing.md) {
+                Text(page.title)
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .multilineTextAlignment(.center)
+
+                Text(page.description)
+                    .font(.system(size: 16))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(4)
+                    .padding(.horizontal, DFSpacing.xxl)
+            }
+            .opacity(appeared ? 1.0 : 0)
+            .offset(y: appeared ? 0 : 16)
+
+            Spacer()
+            Spacer()
+        }
+        .onAppear {
+            appeared = false
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.1)) { appeared = true }
         }
     }
 }
