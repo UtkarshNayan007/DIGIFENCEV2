@@ -20,6 +20,7 @@ final class AdminViewModel: ObservableObject {
     
     @Published var title = ""
     @Published var description = ""
+    @Published var category = "All"
     @Published var latitude: Double = 37.7749
     @Published var longitude: Double = -122.4194
     @Published var polygonPoints: [CLLocationCoordinate2D] = []
@@ -231,6 +232,7 @@ final class AdminViewModel: ObservableObject {
                 "title": title,
                 "description": description,
                 "eventCode": eventCode,
+                "category": category,
                 "polygonCoordinates": polygonData,
                 "organizerId": uid,
                 "capacity": capacity,

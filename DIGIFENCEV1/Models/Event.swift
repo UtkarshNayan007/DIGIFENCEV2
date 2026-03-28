@@ -15,6 +15,7 @@ struct Event: Codable, Identifiable {
     let title: String
     var description: String?
     var eventCode: String?
+    var category: String?
     let polygonCoordinates: [GeoPoint_DF]
     let organizerId: String
     var capacity: Int?
@@ -59,6 +60,7 @@ struct Event: Codable, Identifiable {
         title: String,
         description: String? = nil,
         eventCode: String? = nil,
+        category: String? = nil,
         polygonCoordinates: [GeoPoint_DF],
         organizerId: String,
         capacity: Int? = nil,
@@ -74,6 +76,7 @@ struct Event: Codable, Identifiable {
         self.title = title
         self.description = description
         self.eventCode = eventCode
+        self.category = category
         self.polygonCoordinates = polygonCoordinates
         self.organizerId = organizerId
         self.capacity = capacity

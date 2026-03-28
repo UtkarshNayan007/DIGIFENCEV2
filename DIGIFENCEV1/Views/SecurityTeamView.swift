@@ -28,7 +28,57 @@ struct SecurityTeamView: View {
                     message: "Add security personnel to handle event check-ins."
                 )
             } else {
-                ScrollView {
+                VStack(spacing: 0) {
+                    // Team summary header
+                    HStack(spacing: DFSpacing.lg) {
+                        VStack(spacing: 4) {
+                            Text("\(viewModel.personnel.count)")
+                                .font(.system(size: 24, weight: .bold, design: .rounded))
+                                .foregroundColor(.indigo)
+                            Text("Members")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(.secondary)
+                                .textCase(.uppercase)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, DFSpacing.md)
+                        .background(Color(.secondarySystemGroupedBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.md, style: .continuous))
+
+                        VStack(spacing: 4) {
+                            Text("\(viewModel.personnel.filter { !$0.allEventIds.isEmpty }.count)")
+                                .font(.system(size: 24, weight: .bold, design: .rounded))
+                                .foregroundColor(.green)
+                            Text("Assigned")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(.secondary)
+                                .textCase(.uppercase)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, DFSpacing.md)
+                        .background(Color(.secondarySystemGroupedBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.md, style: .continuous))
+
+                        VStack(spacing: 4) {
+                            Text("\(viewModel.personnel.filter { $0.allEventIds.isEmpty }.count)")
+                                .font(.system(size: 24, weight: .bold, design: .rounded))
+                                .foregroundColor(.orange)
+                            Text("Unassigned")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(.secondary)
+                                .textCase(.uppercase)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, DFSpacing.md)
+                        .background(Color(.secondarySystemGroupedBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: DFCornerRadius.md, style: .continuous))
+                    }
+                    .padding(.horizontal, DFSpacing.lg)
+                    .padding(.vertical, DFSpacing.md)
+
+                    Divider().padding(.horizontal, DFSpacing.lg)
+
+                    ScrollView {
                     LazyVStack(spacing: DFSpacing.sm) {
                         ForEach(Array(viewModel.personnel.enumerated()), id: \.element.id) { index, person in
                             NavigationLink {
@@ -58,6 +108,7 @@ struct SecurityTeamView: View {
                 }
                 .refreshable {
                     await viewModel.fetchPersonnel()
+                }
                 }
             }
         }

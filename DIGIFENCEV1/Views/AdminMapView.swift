@@ -511,6 +511,31 @@ struct CreateEventSheet: View {
             Form {
                 imagePickerSection
 
+                Section("Category") {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(EventCategory.allCases) { cat in
+                                Button {
+                                    HapticManager.shared.selection()
+                                    viewModel.category = cat.rawValue
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: cat.icon)
+                                            .font(.system(size: 14, weight: .medium))
+                                        Text(cat.rawValue)
+                                            .font(.system(size: 13, weight: .semibold))
+                                    }
+                                    .foregroundColor(viewModel.category == cat.rawValue ? .white : cat.color)
+                                    .padding(.horizontal, 12).padding(.vertical, 8)
+                                    .background(viewModel.category == cat.rawValue ? cat.color : cat.color.opacity(0.12))
+                                    .clipShape(Capsule())
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+
                 Section("Event Details") {
                     TextField("Event Title", text: $viewModel.title).font(.system(size: 16))
                     TextField("Description", text: $viewModel.description, axis: .vertical)
