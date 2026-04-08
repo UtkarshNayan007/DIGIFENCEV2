@@ -130,6 +130,11 @@ function verifySignature(publicKeyBase64, nonceBase64, signatureBase64) {
     const signature = Buffer.from(signatureBase64, "base64");
     const nonce = Buffer.from(nonceBase64, "base64");
 
+    console.log(`[DEBUG] verifySignature:
+      rawKey len: ${rawKey.length}, first bytes: ${rawKey.slice(0, 5).toString("hex")}
+      signature len: ${signature.length}, first bytes: ${signature.slice(0, 5).toString("hex")}
+      nonce len: ${nonce.length}, first bytes: ${nonce.slice(0, 5).toString("hex")}`);
+
     // Build SPKI DER wrapper for EC P-256 uncompressed public key (65 bytes)
     const spkiHeader = Buffer.from(
       "3059301306072a8648ce3d020106082a8648ce3d030107034200",
@@ -142,6 +147,7 @@ function verifySignature(publicKeyBase64, nonceBase64, signatureBase64) {
     } else if (rawKey.length > 65) {
       keyBuffer = rawKey;
     } else {
+      console.error(`[DEBUG] Unexpected public key length: ${rawKey.length}`);
       throw new Error(`Unexpected public key length: ${rawKey.length}`);
     }
 
@@ -153,9 +159,11 @@ function verifySignature(publicKeyBase64, nonceBase64, signatureBase64) {
 
     const verifier = crypto.createVerify("SHA256");
     verifier.update(nonce);
-    return verifier.verify(publicKey, signature);
+    const isValid = verifier.verify(publicKey, signature);
+    console.log(`[DEBUG] Signature validation result: ${isValid}`);
+    return isValid;
   } catch (err) {
-    console.error("Signature verification error:", err.message);
+    console.error(`[DEBUG] Signature verification error: ${err.message}`, err.stack);
     return false;
   }
 }
@@ -328,6 +336,9 @@ exports.activateTicket = onCall(async (request) => {
         throw new HttpsError("not-found", "User profile not found.");
       }
       const user = userSnap.data();
+      
+      console.log(`[activateTicket] User ${uid}: publicKey present = ${!!user.publicKey}, publicKey length = ${user.publicKey ? user.publicKey.length : 0}`);
+      
       if (!user.publicKey) {
         throw new HttpsError(
           "failed-precondition",
@@ -335,13 +346,18 @@ exports.activateTicket = onCall(async (request) => {
         );
       }
 
+      console.log(`[activateTicket] Verifying signature for ticket ${ticketId}, nonce length = ${nonceData.nonce ? nonceData.nonce.length : 0}, signature length = ${signatureBase64 ? signatureBase64.length : 0}`);
+      
       const signatureValid = verifySignature(
         user.publicKey,
         nonceData.nonce,
         signatureBase64
       );
+      
+      console.log(`[activateTicket] Signature valid: ${signatureValid}`);
+      
       if (!signatureValid) {
-        // Log suspicious attempt
+        // Log suspicious attempt with diagnostic info
         const logRef = db.collection("attendance_logs").doc();
         tx.set(logRef, {
           ticketId,
@@ -349,6 +365,8 @@ exports.activateTicket = onCall(async (request) => {
           detail: {
             success: false,
             reason: "invalid_signature",
+            publicKeyPrefix: user.publicKey ? user.publicKey.substring(0, 20) : "none",
+            signatureLength: signatureBase64 ? signatureBase64.length : 0,
           },
           timestamp: FieldValue.serverTimestamp(),
         });

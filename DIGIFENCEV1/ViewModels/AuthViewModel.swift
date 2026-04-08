@@ -144,10 +144,9 @@ final class AuthViewModel: ObservableObject {
             // Step 5: Mark biometric authenticated
             firebase.isBiometricAuthenticated = true
             
-            // Step 6: Generate Secure Enclave key if needed
-            if !secureEnclave.hasExistingKey() {
-                await generateAndUploadKey()
-            }
+            // Step 6: Ensure public key is synced to Firestore
+            // Always sync — handles cases where device has key but Firestore doesn't
+            await ensurePublicKeySynced()
             
             // Step 7: Request push notification permission
             Task { await PushManager.shared.requestPermission() }
@@ -208,9 +207,7 @@ final class AuthViewModel: ObservableObject {
             
             firebase.isBiometricAuthenticated = true
             
-            if !secureEnclave.hasExistingKey() {
-                await generateAndUploadKey()
-            }
+            await ensurePublicKeySynced()
             
             Task { await PushManager.shared.requestPermission() }
             
@@ -276,9 +273,7 @@ final class AuthViewModel: ObservableObject {
             
             firebase.isBiometricAuthenticated = true
             
-            if !secureEnclave.hasExistingKey() {
-                await generateAndUploadKey()
-            }
+            await ensurePublicKeySynced()
             
             Task { await PushManager.shared.requestPermission() }
             
@@ -366,13 +361,35 @@ final class AuthViewModel: ObservableObject {
     
     // MARK: - Key Generation
     
-    private func generateAndUploadKey() async {
+    /// Ensures the public key in Firestore matches the device's Secure Enclave key.
+    /// If no key exists on the device, generates a new one.
+    /// If a key exists but Firestore is missing it, re-uploads it.
+    private func ensurePublicKeySynced() async {
         do {
-            let publicKeyBase64 = try secureEnclave.generateKeyPair()
+            let publicKeyBase64: String
+            
+            if secureEnclave.hasExistingKey() {
+                // Device already has a key — export and re-upload to ensure Firestore matches
+                publicKeyBase64 = try secureEnclave.exportPublicKeyBase64()
+                print("🔐 Existing Secure Enclave key found, syncing to Firestore")
+            } else {
+                // No key on device — generate a fresh key pair
+                publicKeyBase64 = try secureEnclave.generateKeyPair()
+                print("🔐 New Secure Enclave key generated")
+            }
+            
             try await firebase.updatePublicKey(publicKeyBase64)
-            print("🔐 Public key uploaded to Firestore")
+            print("✅ Public key synced to Firestore (\(publicKeyBase64.prefix(20))...)")
         } catch {
-            print("⚠️ Secure Enclave key generation failed: \(error.localizedDescription)")
+            print("⚠️ Public key sync failed: \(error.localizedDescription)")
+            // If sync fails, try generating a completely fresh key as fallback
+            do {
+                let freshKey = try secureEnclave.generateKeyPair()
+                try await firebase.updatePublicKey(freshKey)
+                print("✅ Fallback: fresh key generated and uploaded")
+            } catch {
+                print("❌ Critical: Could not sync public key: \(error.localizedDescription)")
+            }
         }
     }
     

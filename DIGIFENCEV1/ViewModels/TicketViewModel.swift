@@ -101,6 +101,11 @@ final class TicketViewModel: ObservableObject {
         activationSuccess = false
         
         do {
+            // Step 0: Ensure public key in Firestore matches device key
+            // This is a safety net — the key should already be synced at sign-in,
+            // but if that failed, we sync it now before activation.
+            try await syncPublicKeyIfNeeded()
+            
             // Step 1: Request nonce
             let nonceResponse = try await cloudFunctions.createActivationNonce(ticketId: ticketId)
             print("✅ Got nonce: \(nonceResponse.nonceId)")
@@ -212,6 +217,37 @@ final class TicketViewModel: ObservableObject {
             try await cloudFunctions.sendExitWarningNotification(ticketId: ticketId)
         } catch {
             print("⚠️ Failed to send exit warning: \(error.localizedDescription)")
+        }
+    }
+    
+    // MARK: - Public Key Sync
+    
+    /// Ensures the public key in Firestore matches the device's Secure Enclave key.
+    /// This prevents "Biometric signature verification failed" errors caused by
+    /// key mismatch between the device and server.
+    private func syncPublicKeyIfNeeded() async throws {
+        guard let uid = firebase.currentUser?.uid else { return }
+        
+        // Check if Firestore has a public key
+        let userDoc = try await firebase.usersCollection.document(uid).getDocument()
+        let existingKey = userDoc.data()?["publicKey"] as? String
+        
+        // Get the device's current public key
+        let deviceKeyBase64: String
+        if secureEnclave.hasExistingKey() {
+            deviceKeyBase64 = try secureEnclave.exportPublicKeyBase64()
+        } else {
+            // No key on device — generate one
+            deviceKeyBase64 = try secureEnclave.generateKeyPair()
+            print("🔐 Generated new Secure Enclave key for activation")
+        }
+        
+        // Upload if Firestore key is missing or doesn't match
+        if existingKey == nil || existingKey != deviceKeyBase64 {
+            try await firebase.updatePublicKey(deviceKeyBase64)
+            print("🔐 Public key synced to Firestore before activation")
+        } else {
+            print("✅ Public key already in sync")
         }
     }
 }
